@@ -55,7 +55,7 @@ ROOT_URLCONF = 'acquity_pdf_generator.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -122,3 +122,21 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+
+
+
+
+
+
+
+
+LOGIN_REDIRECT_URL = '/'
+
+
+
+# API Key: e242108a459377126a4967738b3e3cf2
+
+ACUITY_USER_ID="30621503"
+ACUITY_API_KEY="e242108a459377126a4967738b3e3cf2"

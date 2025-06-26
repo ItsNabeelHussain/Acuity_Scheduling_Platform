@@ -1,0 +1,217 @@
+# scheduling/models.py
+
+# scheduling/services.py
+import requests
+from requests.auth import HTTPBasicAuth
+from django.conf import settings
+from django.utils import timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from .models import Calendar, AppointmentType, Appointment
+
+class AcuityService:
+    def __init__(self):
+        self.base_url = "https://acuityscheduling.com/api/v1"
+        self.auth = HTTPBasicAuth(settings.ACUITY_USER_ID, settings.ACUITY_API_KEY)
+
+    def _parse_acuity_datetime(self, apt_data, time_key):
+        """
+        Parses the many datetime formats returned by the Acuity API.
+        
+        Handles:
+        1. Full ISO-like strings (e.g., '2025-09-13T18:00:00-0400').
+        2. Time-only strings (e.g., '7:30pm') which require a separate 'date' field.
+        3. Multiple date formats for the 'date' field ('YYYY-MM-DD' or 'Month Day, YYYY').
+        """
+        time_str = apt_data.get(time_key)
+        if not time_str:
+            return None, f"Missing '{time_key}' field"
+
+        # Strategy 1: It's an ISO-like string (contains 'T').
+        if 'T' in time_str:
+            try:
+                # Normalize timezone for fromisoformat (for Python < 3.11).
+                if time_str.endswith('Z'):
+                    time_str = time_str.replace('Z', '+00:00')
+                elif len(time_str) > 4 and time_str[-5] in ('+', '-') and time_str[-3] != ':':
+                    time_str = time_str[:-2] + ':' + time_str[-2:]
+                return datetime.fromisoformat(time_str), None
+            except (ValueError, TypeError) as e:
+                return None, f"Invalid ISO-like format: {e}"
+
+        # Strategy 2: It's a time string (e.g., "7:30pm").
+        if 'am' in time_str.lower() or 'pm' in time_str.lower():
+            try:
+                date_str = apt_data.get('date')
+                if not date_str:
+                    return None, "Missing 'date' field for time-only appointment"
+                
+                # The 'date' field itself can have multiple formats.
+                try:
+                    dt_part = datetime.strptime(date_str, '%Y-%m-%d')
+                except ValueError:
+                    dt_part = datetime.strptime(date_str, '%B %d, %Y')
+                    
+                time_part = datetime.strptime(time_str, '%I:%M%p').time()
+                naive_dt = datetime.combine(dt_part.date(), time_part)
+
+                # Apply timezone if available.
+                tz_str = apt_data.get('timezone')
+                if tz_str:
+                    try:
+                        tz = ZoneInfo(tz_str)
+                        return naive_dt.replace(tzinfo=tz), None
+                    except ZoneInfoNotFoundError:
+                        print(f"Warning: Unknown timezone '{tz_str}' for apt {apt_data.get('id')}. Using naive dt.")
+                        return naive_dt, None
+                return naive_dt, None
+            except (ValueError, TypeError) as e:
+                return None, f"Could not parse date/time combination: {e}"
+        
+        return None, f"Unrecognized datetime format: '{time_str}'"
+
+    def get_calendars(self):
+        """Fetch calendars from Acuity API"""
+        try:
+            response = requests.get(f"{self.base_url}/calendars", auth=self.auth)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching calendars: {e}")
+            return []
+        except Exception as e:
+            import logging
+            logging.exception('Unexpected error in get_calendars')
+            return []
+
+    def get_appointment_types(self):
+        """Fetch appointment types from Acuity API"""
+        try:
+            response = requests.get(f"{self.base_url}/appointment-types", auth=self.auth)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching appointment types: {e}")
+            return []
+        except Exception as e:
+            import logging
+            logging.exception('Unexpected error in get_appointment_types')
+            return []
+
+    def get_appointments(self, calendar_id=None, start_date=None, end_date=None):
+        """Fetch appointments from Acuity API"""
+        try:
+            params = {}
+            if calendar_id:
+                params['calendarID'] = calendar_id
+            if start_date:
+                params['minDate'] = start_date.strftime('%Y-%m-%d')
+            if end_date:
+                params['maxDate'] = end_date.strftime('%Y-%m-%d')
+                
+            response = requests.get(f"{self.base_url}/appointments", auth=self.auth, params=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching appointments: {e}")
+            return []
+        except Exception as e:
+            import logging
+            logging.exception('Unexpected error in get_appointments')
+            return []
+
+    def sync_calendars(self):
+        """Sync calendars from Acuity to local database"""
+        calendars_data = self.get_calendars()
+        for cal_data in calendars_data:
+            Calendar.objects.update_or_create(
+                acuity_calendar_id=str(cal_data['id']),
+                defaults={
+                    'name': cal_data['name'],
+                    'description': cal_data.get('description', ''),
+                }
+            )
+
+    def sync_appointment_types(self):
+        """Sync appointment types from Acuity to local database"""
+        types_data = self.get_appointment_types()
+        for type_data in types_data:
+            AppointmentType.objects.update_or_create(
+                acuity_type_id=str(type_data['id']),
+                defaults={
+                    'name': type_data['name'],
+                    'duration': type_data['duration'],
+                    'price': type_data.get('price', 0),
+                    'description': type_data.get('description', ''),
+                }
+            )
+
+    def sync_appointments(self, calendar_id=None):
+        """Sync appointments from Acuity to local database"""
+        appointments_data = self.get_appointments(calendar_id=calendar_id)
+        
+        for apt_data in appointments_data:
+            try:
+                calendar_id_val = str(apt_data.get('calendarID'))
+                appointment_type_id_val = str(apt_data.get('appointmentTypeID'))
+
+                if not calendar_id_val or not appointment_type_id_val:
+                    print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to missing calendarID or appointmentTypeID.")
+                    continue
+
+                calendar = Calendar.objects.get(acuity_calendar_id=calendar_id_val)
+                appointment_type = AppointmentType.objects.get(acuity_type_id=appointment_type_id_val)
+                
+                # Defensive: handle missing or malformed datetime fields
+                start_time, start_err = self._parse_acuity_datetime(apt_data, 'datetime')
+                end_time, end_err = self._parse_acuity_datetime(apt_data, 'endTime')
+
+                if start_err:
+                    print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to start time error: {start_err}")
+                    continue
+                if end_err:
+                    # We might have a valid start but not a valid end.
+                    print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to end time error: {end_err}")
+                    continue
+
+                # Extract processing fee from form data (default to 1.0 if not found)
+                processing_fee = 1.0
+                forms = apt_data.get('forms', [])
+                for form in forms:
+                    for field in form.get('values', []):
+                        name = field.get('name', '').lower()
+                        if 'processing fee' in name or 'fee:' in name:
+                            try:
+                                processing_fee = float(field.get('value', 1.0))
+                                # If user enters 0.04, treat as 1.04 (4% fee)
+                                if processing_fee < 2.0:
+                                    processing_fee = 1.0 + float(processing_fee)
+                            except Exception:
+                                processing_fee = 1.0
+                            break
+
+                Appointment.objects.update_or_create(
+                    acuity_appointment_id=str(apt_data.get('id', '')),
+                    defaults={
+                        'calendar': calendar,
+                        'appointment_type': appointment_type,
+                        'client_name': f"{apt_data.get('firstName', '')} {apt_data.get('lastName', '')}",
+                        'client_email': apt_data.get('email', ''),
+                        'client_phone': apt_data.get('phone', ''),
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'notes': apt_data.get('notes', ''),
+                        'price': apt_data.get('price', 0),
+                        'status': apt_data.get('status', 'scheduled').lower(),
+                        'form_data': forms,
+                        'processing_fee': processing_fee,
+                        'last_synced': timezone.now(),
+                    }
+                )
+            except (Calendar.DoesNotExist, AppointmentType.DoesNotExist) as e:
+                print(f"Error syncing appointment {apt_data.get('id', 'unknown')}: {e}")
+                continue
+            except Exception as e:
+                import logging
+                logging.exception(f"Unexpected error syncing appointment {apt_data.get('id', 'unknown')}")
+                continue

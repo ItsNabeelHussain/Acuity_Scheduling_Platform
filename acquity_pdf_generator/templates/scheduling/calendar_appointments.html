@@ -1,0 +1,130 @@
+
+
+<!-- templates/scheduling/calendar_appointments.html -->
+{% extends 'base.html' %}
+
+{% block title %}{{ calendar.name }} - Appointments{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-calendar me-2"></i>{{ calendar.name }}
+        <small class="text-muted">Appointments</small>
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="location.reload()">
+                <i class="fas fa-sync me-1"></i>Refresh
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Filter Form -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-4">
+                <label for="start_date" class="form-label">Start Date</label>
+                <input type="date" class="form-control" id="start_date" name="start_date" value="{{ start_date|date:'Y-m-d' }}">
+            </div>
+            <div class="col-md-4">
+                <label for="end_date" class="form-label">End Date</label>
+                <input type="date" class="form-control" id="end_date" name="end_date" value="{{ end_date|date:'Y-m-d' }}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">&nbsp;</label>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-filter me-1"></i>Filter
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Appointments List -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-list me-2"></i>All Appointments</h5>
+        <span class="badge bg-primary">{{ appointments.count }} appointments</span>
+    </div>
+    <div class="card-body">
+        {% if appointments %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Client</th>
+                            <th>Service</th>
+                            <th>Date & Time</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                            <th>Price</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for appointment in appointments %}
+                        <tr>
+                            <td>
+                                <div>
+                                    <strong>{{ appointment.client_name }}</strong>
+                                    <br><small class="text-muted">{{ appointment.client_email }}</small>
+                                    {% if appointment.client_phone %}
+                                        <br><small class="text-muted"><i class="fas fa-phone me-1"></i>{{ appointment.client_phone }}</small>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <strong>{{ appointment.appointment_type.name }}</strong>
+                                {% if appointment.appointment_type.description %}
+                                    <br><small class="text-muted">{{ appointment.appointment_type.description|truncatewords:5 }}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <strong>{{ appointment.start_time|date:"D, M d, Y" }}</strong>
+                                <br><small class="text-muted">{{ appointment.start_time|time:"g:i A" }} - {{ appointment.end_time|time:"g:i A" }}</small>
+                            </td>
+                            <td>{{ appointment.appointment_type.duration }} min</td>
+                            <td>
+                                {% if appointment.status == 'completed' %}
+                                    <span class="badge bg-success">{{ appointment.get_status_display }}</span>
+                                {% elif appointment.status == 'cancelled' %}
+                                    <span class="badge bg-danger">{{ appointment.get_status_display }}</span>
+                                {% elif appointment.status == 'confirmed' %}
+                                    <span class="badge bg-info">{{ appointment.get_status_display }}</span>
+                                {% else %}
+                                    <span class="badge bg-warning">{{ appointment.get_status_display }}</span>
+                                {% endif %}
+                            </td>
+                            <td><strong>${{ appointment.price }}</strong></td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{% url 'appointment_detail' appointment.id %}" class="btn btn-outline-primary" title="View Details">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <a href="{% url 'download_pdf' appointment.id %}" class="btn btn-pdf text-white" title="Download PDF">
+                                        <i class="fas fa-file-pdf"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-calendar-times fa-4x text-muted mb-3"></i>
+                <h4 class="text-muted">No appointments found</h4>
+                <p class="text-muted">Try adjusting your date filters or check back later.</p>
+                <a href="{% url 'calendar_appointments' calendar.id %}" class="btn btn-primary">
+                    <i class="fas fa-refresh me-1"></i>Clear filters
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

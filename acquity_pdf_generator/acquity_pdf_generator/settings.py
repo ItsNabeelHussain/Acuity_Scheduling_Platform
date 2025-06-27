@@ -140,3 +140,8 @@ LOGIN_REDIRECT_URL = '/'
 
 ACUITY_USER_ID="30621503"
 ACUITY_API_KEY="e242108a459377126a4967738b3e3cf2"
+
+import os
+
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')

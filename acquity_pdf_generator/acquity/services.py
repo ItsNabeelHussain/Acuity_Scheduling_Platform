@@ -5,7 +5,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 from django.conf import settings
 from django.utils import timezone
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .models import Calendar, AppointmentType, Appointment
 from django.db import transaction
@@ -167,29 +167,62 @@ class AcuityService:
                 }
             )
 
-    def sync_appointments(self, calendar_id=None, batch_size=100):
+    def sync_appointments(self, calendar_id=None, batch_size=100, days_back=30):
         """Sync appointments from Acuity to local database in batches to prevent memory issues"""
+        from django.db import transaction
+        from datetime import datetime, timedelta
+        
+        # Calculate date range for last N days
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+        
         print(f"Starting sync with batch size: {batch_size}")
+        print(f"Calendar ID filter: {calendar_id}")
+        print(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} (last {days_back} days)")
+        
+        # Get total count from API for this date range
+        total_expected = self.get_appointments_count_by_date_range(start_date, end_date, calendar_id)
+        print(f"Expected appointments from Acuity API for date range: {total_expected}")
         
         created_count = 0
         updated_count = 0
         total_processed = 0
         page = 1
+        processed_appointment_ids = set()  # Track processed IDs to detect duplicates
         
         while True:
             try:
-                # Fetch one batch of appointments
+                # Fetch one batch of appointments for the date range
                 params = {'page': page, 'max': batch_size}
                 if calendar_id:
                     params['calendarID'] = calendar_id
+                if start_date:
+                    params['minDate'] = start_date.strftime('%Y-%m-%d')
+                if end_date:
+                    params['maxDate'] = end_date.strftime('%Y-%m-%d')
                     
+                print(f"Fetching page {page} with params: {params}")
                 response = requests.get(f"{self.base_url}/appointments", auth=self.auth, params=params)
                 response.raise_for_status()
                 appointments_batch = response.json()
                 
+                print(f"API returned {len(appointments_batch)} appointments for page {page}")
+                
                 # If no appointments returned, we've reached the end
                 if not appointments_batch:
+                    print(f"No appointments returned for page {page}, stopping sync")
                     break
+                
+                # Check for duplicate appointments (same page being returned)
+                current_batch_ids = {apt.get('id') for apt in appointments_batch}
+                
+                # If this is page 2+ and we get the same appointments as page 1, we've reached the end
+                if page > 1 and current_batch_ids.intersection(processed_appointment_ids):
+                    print(f"Page {page} contains duplicate appointments. This likely means we've reached the end of available appointments.")
+                    print(f"Stopping sync - all appointments have been processed.")
+                    break
+                
+                processed_appointment_ids.update(current_batch_ids)
                 
                 print(f"Processing batch {page}: {len(appointments_batch)} appointments")
                 
@@ -298,6 +331,16 @@ class AcuityService:
         
         print(f"Sync completed: {created_count} new appointments created, {updated_count} existing appointments updated")
         print(f"Total appointments processed: {total_processed} across {page-1} pages")
+        print(f"Unique appointment IDs processed: {len(processed_appointment_ids)}")
+        
+        # Show total appointments in database
+        total_in_db = Appointment.objects.count()
+        print(f"Total appointments in database: {total_in_db}")
+        
+        # Show breakdown by calendar if calendar_id is specified
+        if calendar_id:
+            calendar_appointments = Appointment.objects.filter(calendar__acuity_calendar_id=calendar_id).count()
+            print(f"Appointments for calendar {calendar_id}: {calendar_appointments}")
 
     def sync_appointments_by_date_range(self, start_date=None, end_date=None, calendar_id=None, batch_size=100):
         """Sync appointments from Acuity to local database by date range to minimize memory usage"""
@@ -437,3 +480,67 @@ class AcuityService:
         print(f"Date-range sync completed: {created_count} new appointments created, {updated_count} existing appointments updated")
         print(f"Total appointments processed: {total_processed} across {page-1} pages")
         return created_count, updated_count, total_processed
+
+    def get_appointments_count(self, calendar_id=None):
+        """Get the total count of appointments from Acuity API"""
+        try:
+            params = {'max': 1}  # Just get 1 appointment to see total count
+            if calendar_id:
+                params['calendarID'] = calendar_id
+                
+            response = requests.get(f"{self.base_url}/appointments", auth=self.auth, params=params)
+            response.raise_for_status()
+            
+            # Check if there's a total count in headers or response
+            total_count = response.headers.get('X-Total-Count')
+            if total_count:
+                return int(total_count)
+            
+            # If no header, try to estimate from first page
+            appointments = response.json()
+            if len(appointments) == 0:
+                return 0
+            elif len(appointments) < 1:
+                # If we got less than requested, this might be all appointments
+                return len(appointments)
+            else:
+                # We got a full page, so there are likely more
+                return f"At least {len(appointments)} (exact count not available)"
+                
+        except Exception as e:
+            print(f"Error getting appointments count: {e}")
+            return "Unknown"
+
+    def get_appointments_count_by_date_range(self, start_date, end_date, calendar_id=None):
+        """Get the total count of appointments from Acuity API for a specific date range"""
+        try:
+            params = {'max': 1}  # Just get 1 appointment to see total count
+            if calendar_id:
+                params['calendarID'] = calendar_id
+            if start_date:
+                params['minDate'] = start_date.strftime('%Y-%m-%d')
+            if end_date:
+                params['maxDate'] = end_date.strftime('%Y-%m-%d')
+                
+            response = requests.get(f"{self.base_url}/appointments", auth=self.auth, params=params)
+            response.raise_for_status()
+            
+            # Check if there's a total count in headers or response
+            total_count = response.headers.get('X-Total-Count')
+            if total_count:
+                return int(total_count)
+            
+            # If no header, try to estimate from first page
+            appointments = response.json()
+            if len(appointments) == 0:
+                return 0
+            elif len(appointments) < 1:
+                # If we got less than requested, this might be all appointments
+                return len(appointments)
+            else:
+                # We got a full page, so there are likely more
+                return f"At least {len(appointments)} (exact count not available)"
+                
+        except Exception as e:
+            print(f"Error getting appointments count: {e}")
+            return "Unknown"

@@ -8,6 +8,7 @@ from django.utils import timezone
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .models import Calendar, AppointmentType, Appointment
+from django.db import transaction
 
 class AcuityService:
     def __init__(self):
@@ -166,7 +167,7 @@ class AcuityService:
                 }
             )
 
-    def sync_appointments(self, calendar_id=None, batch_size=50):
+    def sync_appointments(self, calendar_id=None, batch_size=100):
         """Sync appointments from Acuity to local database in batches to prevent memory issues"""
         print(f"Starting sync with batch size: {batch_size}")
         
@@ -192,80 +193,89 @@ class AcuityService:
                 
                 print(f"Processing batch {page}: {len(appointments_batch)} appointments")
                 
-                # Process this batch
-                for apt_data in appointments_batch:
-                    try:
-                        calendar_id_val = str(apt_data.get('calendarID'))
-                        appointment_type_id_val = str(apt_data.get('appointmentTypeID'))
+                # Process this batch and save to database immediately
+                batch_created = 0
+                batch_updated = 0
+                
+                with transaction.atomic():
+                    for apt_data in appointments_batch:
+                        try:
+                            calendar_id_val = str(apt_data.get('calendarID'))
+                            appointment_type_id_val = str(apt_data.get('appointmentTypeID'))
 
-                        if not calendar_id_val or not appointment_type_id_val:
-                            print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to missing calendarID or appointmentTypeID.")
-                            continue
+                            if not calendar_id_val or not appointment_type_id_val:
+                                print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to missing calendarID or appointmentTypeID.")
+                                continue
 
-                        calendar = Calendar.objects.get(acuity_calendar_id=calendar_id_val)
-                        appointment_type = AppointmentType.objects.get(acuity_type_id=appointment_type_id_val)
-                        
-                        # Defensive: handle missing or malformed datetime fields
-                        start_time, start_err = self._parse_acuity_datetime(apt_data, 'datetime')
-                        end_time, end_err = self._parse_acuity_datetime(apt_data, 'endTime')
-
-                        if start_err:
-                            print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to start time error: {start_err}")
-                            continue
-                        if end_err:
-                            # We might have a valid start but not a valid end.
-                            print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to end time error: {end_err}")
-                            continue
-
-                        # Extract processing fee from form data (default to 1.0 if not found)
-                        processing_fee = 1.0
-                        forms = apt_data.get('forms', [])
-                        for form in forms:
-                            for field in form.get('values', []):
-                                name = field.get('name', '').lower()
-                                if 'processing fee' in name or 'fee:' in name:
-                                    try:
-                                        processing_fee = float(field.get('value', 1.0))
-                                        # If user enters 0.04, treat as 1.04 (4% fee)
-                                        if processing_fee < 2.0:
-                                            processing_fee = 1.0 + float(processing_fee)
-                                    except Exception:
-                                        processing_fee = 1.0
-                                    break
-
-                        appointment, created = Appointment.objects.update_or_create(
-                            acuity_appointment_id=str(apt_data.get('id', '')),
-                            defaults={
-                                'calendar': calendar,
-                                'appointment_type': appointment_type,
-                                'client_name': f"{apt_data.get('firstName', '')} {apt_data.get('lastName', '')}",
-                                'client_email': apt_data.get('email', ''),
-                                'client_phone': apt_data.get('phone', ''),
-                                'start_time': start_time,
-                                'end_time': end_time,
-                                'notes': apt_data.get('notes', ''),
-                                'price': apt_data.get('price', 0),
-                                'status': apt_data.get('status', 'scheduled').lower(),
-                                'form_data': forms,
-                                'processing_fee': processing_fee,
-                                'last_synced': timezone.now(),
-                            }
-                        )
-                        
-                        if created:
-                            created_count += 1
-                        else:
-                            updated_count += 1
-                        
-                        total_processed += 1
+                            calendar = Calendar.objects.get(acuity_calendar_id=calendar_id_val)
+                            appointment_type = AppointmentType.objects.get(acuity_type_id=appointment_type_id_val)
                             
-                    except (Calendar.DoesNotExist, AppointmentType.DoesNotExist) as e:
-                        print(f"Error syncing appointment {apt_data.get('id', 'unknown')}: {e}")
-                        continue
-                    except Exception as e:
-                        import logging
-                        logging.exception(f"Unexpected error syncing appointment {apt_data.get('id', 'unknown')}")
-                        continue
+                            # Defensive: handle missing or malformed datetime fields
+                            start_time, start_err = self._parse_acuity_datetime(apt_data, 'datetime')
+                            end_time, end_err = self._parse_acuity_datetime(apt_data, 'endTime')
+
+                            if start_err:
+                                print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to start time error: {start_err}")
+                                continue
+                            if end_err:
+                                # We might have a valid start but not a valid end.
+                                print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to end time error: {end_err}")
+                                continue
+
+                            # Extract processing fee from form data (default to 1.0 if not found)
+                            processing_fee = 1.0
+                            forms = apt_data.get('forms', [])
+                            for form in forms:
+                                for field in form.get('values', []):
+                                    name = field.get('name', '').lower()
+                                    if 'processing fee' in name or 'fee:' in name:
+                                        try:
+                                            processing_fee = float(field.get('value', 1.0))
+                                            # If user enters 0.04, treat as 1.04 (4% fee)
+                                            if processing_fee < 2.0:
+                                                processing_fee = 1.0 + float(processing_fee)
+                                        except Exception:
+                                            processing_fee = 1.0
+                                        break
+
+                            appointment, created = Appointment.objects.update_or_create(
+                                acuity_appointment_id=str(apt_data.get('id', '')),
+                                defaults={
+                                    'calendar': calendar,
+                                    'appointment_type': appointment_type,
+                                    'client_name': f"{apt_data.get('firstName', '')} {apt_data.get('lastName', '')}",
+                                    'client_email': apt_data.get('email', ''),
+                                    'client_phone': apt_data.get('phone', ''),
+                                    'start_time': start_time,
+                                    'end_time': end_time,
+                                    'notes': apt_data.get('notes', ''),
+                                    'price': apt_data.get('price', 0),
+                                    'status': apt_data.get('status', 'scheduled').lower(),
+                                    'form_data': forms,
+                                    'processing_fee': processing_fee,
+                                    'last_synced': timezone.now(),
+                                }
+                            )
+                            
+                            if created:
+                                batch_created += 1
+                                created_count += 1
+                            else:
+                                batch_updated += 1
+                                updated_count += 1
+                            
+                            total_processed += 1
+                                
+                        except (Calendar.DoesNotExist, AppointmentType.DoesNotExist) as e:
+                            print(f"Error syncing appointment {apt_data.get('id', 'unknown')}: {e}")
+                            continue
+                        except Exception as e:
+                            import logging
+                            logging.exception(f"Unexpected error syncing appointment {apt_data.get('id', 'unknown')}")
+                            continue
+                
+                # Transaction is automatically committed here
+                print(f"Batch {page} saved to database: {batch_created} created, {batch_updated} updated")
                 
                 # Clear the batch from memory
                 del appointments_batch
@@ -274,7 +284,7 @@ class AcuityService:
                 page += 1
                 
                 # Optional: Add a safety limit to prevent infinite loops
-                if page > 1000:  # Max 1000 pages (50,000 appointments with batch_size=50)
+                if page > 1000:  # Max 1000 pages (100,000 appointments with batch_size=100)
                     print("Warning: Reached maximum page limit (1000). Some appointments may not be fetched.")
                     break
                     
@@ -289,8 +299,10 @@ class AcuityService:
         print(f"Sync completed: {created_count} new appointments created, {updated_count} existing appointments updated")
         print(f"Total appointments processed: {total_processed} across {page-1} pages")
 
-    def sync_appointments_by_date_range(self, start_date=None, end_date=None, calendar_id=None, batch_size=50):
+    def sync_appointments_by_date_range(self, start_date=None, end_date=None, calendar_id=None, batch_size=100):
         """Sync appointments from Acuity to local database by date range to minimize memory usage"""
+        from django.db import transaction
+        
         print(f"Starting date-range sync: {start_date} to {end_date} with batch size: {batch_size}")
         
         created_count = 0
@@ -319,80 +331,89 @@ class AcuityService:
                 
                 print(f"Processing batch {page}: {len(appointments_batch)} appointments")
                 
-                # Process this batch
-                for apt_data in appointments_batch:
-                    try:
-                        calendar_id_val = str(apt_data.get('calendarID'))
-                        appointment_type_id_val = str(apt_data.get('appointmentTypeID'))
+                # Process this batch and save to database immediately
+                batch_created = 0
+                batch_updated = 0
+                
+                with transaction.atomic():
+                    for apt_data in appointments_batch:
+                        try:
+                            calendar_id_val = str(apt_data.get('calendarID'))
+                            appointment_type_id_val = str(apt_data.get('appointmentTypeID'))
 
-                        if not calendar_id_val or not appointment_type_id_val:
-                            print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to missing calendarID or appointmentTypeID.")
-                            continue
+                            if not calendar_id_val or not appointment_type_id_val:
+                                print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to missing calendarID or appointmentTypeID.")
+                                continue
 
-                        calendar = Calendar.objects.get(acuity_calendar_id=calendar_id_val)
-                        appointment_type = AppointmentType.objects.get(acuity_type_id=appointment_type_id_val)
-                        
-                        # Defensive: handle missing or malformed datetime fields
-                        start_time, start_err = self._parse_acuity_datetime(apt_data, 'datetime')
-                        end_time, end_err = self._parse_acuity_datetime(apt_data, 'endTime')
-
-                        if start_err:
-                            print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to start time error: {start_err}")
-                            continue
-                        if end_err:
-                            # We might have a valid start but not a valid end.
-                            print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to end time error: {end_err}")
-                            continue
-
-                        # Extract processing fee from form data (default to 1.0 if not found)
-                        processing_fee = 1.0
-                        forms = apt_data.get('forms', [])
-                        for form in forms:
-                            for field in form.get('values', []):
-                                name = field.get('name', '').lower()
-                                if 'processing fee' in name or 'fee:' in name:
-                                    try:
-                                        processing_fee = float(field.get('value', 1.0))
-                                        # If user enters 0.04, treat as 1.04 (4% fee)
-                                        if processing_fee < 2.0:
-                                            processing_fee = 1.0 + float(processing_fee)
-                                    except Exception:
-                                        processing_fee = 1.0
-                                    break
-
-                        appointment, created = Appointment.objects.update_or_create(
-                            acuity_appointment_id=str(apt_data.get('id', '')),
-                            defaults={
-                                'calendar': calendar,
-                                'appointment_type': appointment_type,
-                                'client_name': f"{apt_data.get('firstName', '')} {apt_data.get('lastName', '')}",
-                                'client_email': apt_data.get('email', ''),
-                                'client_phone': apt_data.get('phone', ''),
-                                'start_time': start_time,
-                                'end_time': end_time,
-                                'notes': apt_data.get('notes', ''),
-                                'price': apt_data.get('price', 0),
-                                'status': apt_data.get('status', 'scheduled').lower(),
-                                'form_data': forms,
-                                'processing_fee': processing_fee,
-                                'last_synced': timezone.now(),
-                            }
-                        )
-                        
-                        if created:
-                            created_count += 1
-                        else:
-                            updated_count += 1
-                        
-                        total_processed += 1
+                            calendar = Calendar.objects.get(acuity_calendar_id=calendar_id_val)
+                            appointment_type = AppointmentType.objects.get(acuity_type_id=appointment_type_id_val)
                             
-                    except (Calendar.DoesNotExist, AppointmentType.DoesNotExist) as e:
-                        print(f"Error syncing appointment {apt_data.get('id', 'unknown')}: {e}")
-                        continue
-                    except Exception as e:
-                        import logging
-                        logging.exception(f"Unexpected error syncing appointment {apt_data.get('id', 'unknown')}")
-                        continue
+                            # Defensive: handle missing or malformed datetime fields
+                            start_time, start_err = self._parse_acuity_datetime(apt_data, 'datetime')
+                            end_time, end_err = self._parse_acuity_datetime(apt_data, 'endTime')
+
+                            if start_err:
+                                print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to start time error: {start_err}")
+                                continue
+                            if end_err:
+                                # We might have a valid start but not a valid end.
+                                print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to end time error: {end_err}")
+                                continue
+
+                            # Extract processing fee from form data (default to 1.0 if not found)
+                            processing_fee = 1.0
+                            forms = apt_data.get('forms', [])
+                            for form in forms:
+                                for field in form.get('values', []):
+                                    name = field.get('name', '').lower()
+                                    if 'processing fee' in name or 'fee:' in name:
+                                        try:
+                                            processing_fee = float(field.get('value', 1.0))
+                                            # If user enters 0.04, treat as 1.04 (4% fee)
+                                            if processing_fee < 2.0:
+                                                processing_fee = 1.0 + float(processing_fee)
+                                        except Exception:
+                                            processing_fee = 1.0
+                                        break
+
+                            appointment, created = Appointment.objects.update_or_create(
+                                acuity_appointment_id=str(apt_data.get('id', '')),
+                                defaults={
+                                    'calendar': calendar,
+                                    'appointment_type': appointment_type,
+                                    'client_name': f"{apt_data.get('firstName', '')} {apt_data.get('lastName', '')}",
+                                    'client_email': apt_data.get('email', ''),
+                                    'client_phone': apt_data.get('phone', ''),
+                                    'start_time': start_time,
+                                    'end_time': end_time,
+                                    'notes': apt_data.get('notes', ''),
+                                    'price': apt_data.get('price', 0),
+                                    'status': apt_data.get('status', 'scheduled').lower(),
+                                    'form_data': forms,
+                                    'processing_fee': processing_fee,
+                                    'last_synced': timezone.now(),
+                                }
+                            )
+                            
+                            if created:
+                                batch_created += 1
+                                created_count += 1
+                            else:
+                                batch_updated += 1
+                                updated_count += 1
+                            
+                            total_processed += 1
+                                
+                        except (Calendar.DoesNotExist, AppointmentType.DoesNotExist) as e:
+                            print(f"Error syncing appointment {apt_data.get('id', 'unknown')}: {e}")
+                            continue
+                        except Exception as e:
+                            import logging
+                            logging.exception(f"Unexpected error syncing appointment {apt_data.get('id', 'unknown')}")
+                            continue
+                
+                # Transaction is automatically committed here
+                print(f"Batch {page} saved to database: {batch_created} created, {batch_updated} updated")
                 
                 # Clear the batch from memory
                 del appointments_batch
@@ -401,7 +422,7 @@ class AcuityService:
                 page += 1
                 
                 # Optional: Add a safety limit to prevent infinite loops
-                if page > 1000:  # Max 1000 pages (50,000 appointments with batch_size=50)
+                if page > 1000:  # Max 1000 pages (100,000 appointments with batch_size=100)
                     print("Warning: Reached maximum page limit (1000). Some appointments may not be fetched.")
                     break
                     

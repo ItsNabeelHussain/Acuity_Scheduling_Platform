@@ -99,26 +99,46 @@ class AcuityService:
             return []
 
     def get_appointments(self, calendar_id=None, start_date=None, end_date=None):
-        """Fetch appointments from Acuity API"""
-        try:
-            params = {}
-            if calendar_id:
-                params['calendarID'] = calendar_id
-            if start_date:
-                params['minDate'] = start_date.strftime('%Y-%m-%d')
-            if end_date:
-                params['maxDate'] = end_date.strftime('%Y-%m-%d')
+        """Fetch appointments from Acuity API with pagination support"""
+        all_appointments = []
+        page = 1
+        
+        while True:
+            try:
+                params = {'page': page}
+                if calendar_id:
+                    params['calendarID'] = calendar_id
+                if start_date:
+                    params['minDate'] = start_date.strftime('%Y-%m-%d')
+                if end_date:
+                    params['maxDate'] = end_date.strftime('%Y-%m-%d')
+                    
+                response = requests.get(f"{self.base_url}/appointments", auth=self.auth, params=params)
+                response.raise_for_status()
+                appointments = response.json()
                 
-            response = requests.get(f"{self.base_url}/appointments", auth=self.auth, params=params)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching appointments: {e}")
-            return []
-        except Exception as e:
-            import logging
-            logging.exception('Unexpected error in get_appointments')
-            return []
+                # If no appointments returned, we've reached the end
+                if not appointments:
+                    break
+                    
+                all_appointments.extend(appointments)
+                page += 1
+                
+                # Optional: Add a safety limit to prevent infinite loops
+                if page > 1000:  # Max 1000 pages (100,000 appointments)
+                    print("Warning: Reached maximum page limit (1000). Some appointments may not be fetched.")
+                    break
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"Error fetching appointments page {page}: {e}")
+                break
+            except Exception as e:
+                import logging
+                logging.exception(f'Unexpected error in get_appointments page {page}')
+                break
+        
+        print(f"Fetched {len(all_appointments)} total appointments across {page-1} pages")
+        return all_appointments
 
     def sync_calendars(self):
         """Sync calendars from Acuity to local database"""
@@ -149,6 +169,9 @@ class AcuityService:
     def sync_appointments(self, calendar_id=None):
         """Sync appointments from Acuity to local database"""
         appointments_data = self.get_appointments(calendar_id=calendar_id)
+        
+        created_count = 0
+        updated_count = 0
         
         for apt_data in appointments_data:
             try:
@@ -190,7 +213,7 @@ class AcuityService:
                                 processing_fee = 1.0
                             break
 
-                Appointment.objects.update_or_create(
+                appointment, created = Appointment.objects.update_or_create(
                     acuity_appointment_id=str(apt_data.get('id', '')),
                     defaults={
                         'calendar': calendar,
@@ -208,6 +231,12 @@ class AcuityService:
                         'last_synced': timezone.now(),
                     }
                 )
+                
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+                    
             except (Calendar.DoesNotExist, AppointmentType.DoesNotExist) as e:
                 print(f"Error syncing appointment {apt_data.get('id', 'unknown')}: {e}")
                 continue
@@ -215,3 +244,5 @@ class AcuityService:
                 import logging
                 logging.exception(f"Unexpected error syncing appointment {apt_data.get('id', 'unknown')}")
                 continue
+        
+        print(f"Sync completed: {created_count} new appointments created, {updated_count} existing appointments updated")

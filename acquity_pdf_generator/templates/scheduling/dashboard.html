@@ -101,6 +101,31 @@
         padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb;
         display: flex; justify-content: center;
     }
+    .admin-btn {
+        background: #8b5cf6; color: white; border: none; border-radius: 6px;
+        padding: 8px 16px; font-size: 14px; font-weight: 500;
+        display: flex; align-items: center; gap: 6px; text-decoration: none;
+        transition: background-color 0.2s; cursor: pointer;
+    }
+    .admin-btn:hover { background: #7c3aed; color: white; }
+    .modal-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.5); display: none; z-index: 1000;
+        align-items: center; justify-content: center;
+    }
+    .modal-content {
+        background: white; border-radius: 12px; padding: 2rem;
+        max-width: 400px; width: 90%; text-align: center;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+    .modal-title { font-size: 20px; font-weight: 600; margin-bottom: 1rem; color: #111827; }
+    .modal-message { font-size: 16px; color: #6b7280; margin-bottom: 1.5rem; }
+    .modal-btn {
+        background: var(--primary-color); color: white; border: none; border-radius: 6px;
+        padding: 10px 20px; font-size: 14px; font-weight: 500;
+        cursor: pointer; transition: background-color 0.2s;
+    }
+    .modal-btn:hover { background: var(--secondary-color); }
 </style>
 
 <div class="container-fluid py-4">
@@ -115,9 +140,12 @@
         </div>
         <div class="d-flex align-items-center gap-3">
             <span class="d-none d-md-block">Welcome back, <strong>{{ request.user.username }}</strong></span>
+            <button id="adminBtn" class="admin-btn" onclick="handleAdminClick()" data-is-superuser="{% if user.is_superuser %}true{% else %}false{% endif %}">
+                <i class="fas fa-cog"></i> Admin Panel
+            </button>
             <a href="{% url 'logout' %}" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</a>
+        </div>
     </div>
-</div>
 
     <!-- Stats -->
     <div class="stats-grid">
@@ -163,26 +191,26 @@
                     <input type="text" name="q" class="form-control form-control-sm" placeholder="Search..." value="{{ search_query|default:'' }}">
                     <button type="submit" class="btn btn-sm btn-primary ms-2"><i class="fas fa-search"></i></button>
                 </form>
-    </div>
-</div>
+            </div>
+        </div>
 
-                    <div class="table-responsive">
+        <div class="table-responsive">
             <table class="data-table">
-                            <thead>
-                                <tr>
+                <thead>
+                    <tr>
                         {% if user.is_superuser %}<th>User</th>{% endif %}
-                                    <th>Client</th>
-                                    <th>Service</th>
-                                    <th>Date & Time</th>
-                                    <th>Status</th>
+                        <th>Client</th>
+                        <th>Service</th>
+                        <th>Date & Time</th>
+                        <th>Status</th>
                         <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
+                    </tr>
+                </thead>
+                <tbody>
                     {% for appt in appointments_page %}
-                                <tr>
+                    <tr>
                         {% if user.is_superuser %}
-                                    <td>
+                        <td>
                             <div class="user-info">
                                 <div class="user-avatar">{{ appt.calendar.usercalendar_set.first.user.username.0|upper }}</div>
                                 <div>
@@ -190,7 +218,7 @@
                                     <div class="user-email">{{ appt.calendar.name }}</div>
                                 </div>
                             </div>
-                                    </td>
+                        </td>
                         {% endif %}
                         <td>{{ appt.client_name }}</td>
                         <td>{{ appt.appointment_type.name }}</td>
@@ -204,8 +232,8 @@
                                 {% endif %} text-dark">
                                 {{ appt.status|title }}
                             </span>
-                                    </td>
-                                    <td>
+                        </td>
+                        <td>
                             <a href="{% url 'appointment_detail' appt.id %}" class="btn-details">Details</a>
                             <a href="{% url 'download_pdf' appt.id %}" class="btn-pdf-download ms-1"><i class="fas fa-file-pdf"></i></a>
                         </td>
@@ -217,12 +245,12 @@
                             {% if search_query %}
                             <small class="text-muted">Try a different search term.</small>
                             {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
         
         <div class="pagination-container">
             {% if appointments_page.has_other_pages %}
@@ -231,26 +259,68 @@
                     {% if appointments_page.has_previous %}
                         <li class="page-item"><a class="page-link" href="?page=1&q={{ search_query|default:'' }}">&laquo; First</a></li>
                         <li class="page-item"><a class="page-link" href="?page={{ appointments_page.previous_page_number }}&q={{ search_query|default:'' }}">Previous</a></li>
-                {% else %}
+                    {% else %}
                         <li class="page-item disabled"><a class="page-link" href="#">&laquo; First</a></li>
                         <li class="page-item disabled"><a class="page-link" href="#">Previous</a></li>
-                {% endif %}
+                    {% endif %}
 
                     <li class="page-item disabled"><span class="page-link">Page {{ appointments_page.number }} of {{ appointments_page.paginator.num_pages }}</span></li>
 
                     {% if appointments_page.has_next %}
                         <li class="page-item"><a class="page-link" href="?page={{ appointments_page.next_page_number }}&q={{ search_query|default:'' }}">Next</a></li>
                         <li class="page-item"><a class="page-link" href="?page={{ appointments_page.paginator.num_pages }}&q={{ search_query|default:'' }}">Last &raquo;</a></li>
-                                        {% else %}
+                    {% else %}
                         <li class="page-item disabled"><a class="page-link" href="#">Next</a></li>
                         <li class="page-item disabled"><a class="page-link" href="#">Last &raquo;</a></li>
-                                        {% endif %}
+                    {% endif %}
                 </ul>
             </nav>
-                {% endif %}
+            {% endif %}
         </div>
     </div>
 </div>
+
+<!-- Admin Access Modal -->
+<div id="adminModal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-title">Access Denied</div>
+        <div class="modal-message">You are not authorized to access the admin panel. Only superusers can access this feature.</div>
+        <button class="modal-btn" onclick="closeModal()">OK</button>
+    </div>
+</div>
+
+<script>
+function handleAdminClick() {
+    // Get superuser status from data attribute
+    const isSuperuser = document.getElementById('adminBtn').getAttribute('data-is-superuser') === 'true';
+    
+    if (isSuperuser) {
+        // If user is superuser, redirect to Django admin
+        window.location.href = "{% url 'admin:index' %}";
+    } else {
+        // If user is not superuser, show popup
+        document.getElementById('adminModal').style.display = 'flex';
+    }
+}
+
+function closeModal() {
+    document.getElementById('adminModal').style.display = 'none';
+}
+
+// Close modal when clicking outside of it
+document.getElementById('adminModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeModal();
+    }
+});
+
+// Close modal with Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeModal();
+    }
+});
+</script>
 {% endblock %}
 
 {% block extra_js %}

@@ -240,6 +240,7 @@ class PDFGenerator:
             ]))
             elements.append(header_table)
             elements.append(Spacer(1, 10))
+            
             # --- EVENT DETAILS ---
             event_details = [
                 [Paragraph(f"<b>Recommended Seating Arrangement:</b> {seating}", self.styles['Normal'])],
@@ -260,6 +261,91 @@ class PDFGenerator:
             ]))
             elements.append(event_table)
             elements.append(Spacer(1, 10))
+            
+            # --- ORDER DETAILS BOX (formatted, one-pager style) ---
+            order_fields = [
+                'ORDER',
+                'TRAVEL FEE',
+                'TIPS',
+                'TOTAL',
+                'HOW MANY ADULT?',
+                'HOW MANY KID?',
+                'NOODLE / RICE',
+                'GYOZA',
+                'EDAMAME',
+                'FILET MIGNON',
+                'LOBSTER TAIL',
+                'ADDITIONAL SIDE ($15)',
+                'ADDITIONAL SIDE ($10)',
+                'TRAVEL FEE',
+                'DEPOSIT',
+            ]
+            # Grouping for proteins and sides
+            protein_fields = ['CHICKEN', 'STEAK', 'SHRIMP', 'SCALLOPS', 'SALMON', 'FILET MIGNON', 'LOBSTER TAIL']
+            side_fields = ['NOODLE / RICE', 'GYOZA', 'EDAMAME', 'ADDITIONAL SIDE ($15)', 'ADDITIONAL SIDE ($10)']
+            if hasattr(appointment, 'form_data') and appointment.form_data:
+                form_fields = {}
+                for form in appointment.form_data:
+                    for field in form.get('values', []):
+                        name = field.get('name', '').strip().upper()
+                        value = field.get('value', '')
+                        form_fields[name] = value
+                order_details_content = []
+                # Heading
+                order_details_content.append('<b>Order Details:</b>')
+                # Guests/party size
+                guests = form_fields.get('ORDER') or form_fields.get('HOW MANY ADULT?')
+                if guests:
+                    order_details_content.append(f'<font size="10">&#9679; {guests}</font>')
+                # Total Protein
+                total_protein = form_fields.get('TOTAL PROTEIN')
+                if total_protein:
+                    order_details_content.append(f'<font size="10">&#9679; Total Protein: {total_protein}</font>')
+                # Proteins
+                protein_lines = []
+                for pf in protein_fields:
+                    val = form_fields.get(pf)
+                    if val:
+                        protein_lines.append(f'{val} {pf.title()}')
+                if protein_lines:
+                    order_details_content.append(f'<font size="10">&#9679; ' + ' / '.join(protein_lines) + '</font>')
+                # Sides
+                side_lines = []
+                for sf in side_fields:
+                    val = form_fields.get(sf)
+                    if val:
+                        side_lines.append(f'{val} {sf.title()}')
+                if side_lines:
+                    order_details_content.append(f'<font size="10">&#9679; Sides:</font>')
+                    for s in side_lines:
+                        order_details_content.append(f'<font size="10">&#9679; {s}</font>')
+                # Travel Fee, Tips, Total, Deposit
+                for label in ['TRAVEL FEE', 'TIPS', 'TOTAL', 'DEPOSIT']:
+                    val = form_fields.get(label)
+                    if val:
+                        order_details_content.append(f'<font size="10">&#9679; {label.title()}: {val}</font>')
+                # Allergies (if present)
+                allergy = form_fields.get('ALLERGIES') or form_fields.get('ALLERGY')
+                if allergy:
+                    order_details_content.append(f'allergies: {allergy}')
+                if order_details_content:
+                    order_details_text = '<br/><br/>'.join(order_details_content)
+                    order_details_paragraph = Paragraph(order_details_text, self.styles['Normal'])
+                    order_details_table = Table([[order_details_paragraph]], colWidths=[7*inch])
+                    order_details_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,-1), colors.whitesmoke),
+                        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                        ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
+                        ('FONTSIZE', (0,0), (-1,-1), 9),
+                        ('GRID', (0,0), (-1,-1), 1, colors.grey),
+                        ('TOPPADDING', (0,0), (-1,-1), 10),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+                        ('LEFTPADDING', (0,0), (-1,-1), 10),
+                        ('RIGHTPADDING', (0,0), (-1,-1), 10),
+                    ]))
+                    elements.append(order_details_table)
+                    elements.append(Spacer(1, 10))
+            
             # --- ORDER BREAKDOWN ---
             order_table_data = [
                 ["", "Quantity", "Total ($)"]
@@ -270,7 +356,6 @@ class PDFGenerator:
             # Other items
             for key in ["Noodle / rice", "Gyoza", "Edamame", "FM", "Lobster", "Side"]:
                 order_table_data.append([key, str(order_breakdown[key]['count']), f"${order_breakdown[key]['total']}"])
-            order_table_data.append(["Protein", str(protein or 25), ""])
             order_table = Table(order_table_data, colWidths=[2.5*inch, 2*inch, 2*inch])
             order_table.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.lightblue),
@@ -281,7 +366,7 @@ class PDFGenerator:
             ]))
             elements.append(order_table)
             elements.append(Spacer(1, 8))
-            elements.append(Paragraph("Our meal comes with veggies, fried rice, and salad. Sake is also included,Please ensure table, chairs, plates and utensils are also setup prior to the chef’s arrival.", self.styles['Normal']))
+            elements.append(Paragraph("Our meal comes with veggies, fried rice, and salad. Sake is also included,Please ensure table, chairs, plates and utensils are also setup prior to the chef's arrival.", self.styles['Normal']))
             elements.append(Spacer(1, 8))
             # --- FEES ---
             fees_data = [

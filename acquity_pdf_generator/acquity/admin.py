@@ -2,7 +2,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
-from .models import Calendar, UserCalendar, AppointmentType, Appointment
+from .models import Calendar, UserCalendar, AppointmentType, Appointment, PricingSetting
 
 # Customize User Admin
 class UserCalendarInline(admin.TabularInline):
@@ -58,3 +58,5 @@ class AppointmentAdmin(admin.ModelAdmin):
         return " | ".join(items[:3]) + ('...' if len(items) > 3 else '')
 
     display_form_data.short_description = "Form Data"
+
+admin.site.register(PricingSetting)

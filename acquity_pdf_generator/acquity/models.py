@@ -69,6 +69,9 @@ class Appointment(models.Model):
     # Custom form data from Acuity
     form_data = models.JSONField(default=dict, blank=True)
 
+    # Color tag from Acuity
+    color_tag = models.CharField(max_length=32, blank=True, default="")
+
     # Processing fee multiplier (e.g., 1.04 for 4% fee)
     processing_fee = models.FloatField(default=1.0, help_text="Multiplier for processing fee (e.g., 1.04 for 4% fee)")
     
@@ -91,3 +94,28 @@ class PDFGenerationLog(models.Model):
 
     def __str__(self):
         return f"PDF for Appointment {self.appointment.id} generated at {self.generated_at}"
+
+# PricingSetting model for admin-editable pricing
+class PricingSetting(models.Model):
+    CATEGORY_CHOICES = [
+        ("adult", "Adult"),
+        ("kid", "Kid"),
+        ("noodle_rice", "Noodle / Rice"),
+        ("gyoza", "Gyoza"),
+        ("edamame", "Edamame"),
+        ("fm", "Filet Mignon"),
+        ("lobster", "Lobster"),
+        ("side", "Side"),
+        ("protein", "Protein"),
+    ]
+    category = models.CharField(max_length=32, choices=CATEGORY_CHOICES)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    location = models.CharField(max_length=128, blank=True, help_text="Optional: set for location-based pricing.")
+
+    class Meta:
+        unique_together = ("category", "location")
+        verbose_name = "Pricing Setting"
+        verbose_name_plural = "Pricing Settings"
+
+    def __str__(self):
+        return f"{self.get_category_display()} - {self.location or 'Default'}: ${self.price}"

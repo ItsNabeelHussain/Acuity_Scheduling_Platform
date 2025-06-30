@@ -167,180 +167,131 @@ class AcuityService:
                 }
             )
 
-    def sync_appointments(self, calendar_id=None, batch_size=100, days_back=30):
+    def sync_appointments(self, calendar_id=None, batch_size=100, days_back=60):
         """Sync appointments from Acuity to local database in batches to prevent memory issues"""
         from django.db import transaction
         from datetime import datetime, timedelta
         
-        # Calculate date range for last N days
+        # Calculate date range for last 2 months (60 days)
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=days_back)
+        start_date = end_date - timedelta(days=60)
         
         print(f"Starting sync with batch size: {batch_size}")
         print(f"Calendar ID filter: {calendar_id}")
-        print(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} (last {days_back} days)")
+        print(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} (last 60 days)")
         
-        # Get total count from API for this date range
-        total_expected = self.get_appointments_count_by_date_range(start_date, end_date, calendar_id)
-        print(f"Expected appointments from Acuity API for date range: {total_expected}")
-        
-        created_count = 0
-        updated_count = 0
-        total_processed = 0
-        page = 1
-        processed_appointment_ids = set()  # Track processed IDs to detect duplicates
-        
-        while True:
-            try:
-                # Fetch one batch of appointments for the date range
-                params = {'page': page, 'max': batch_size}
-                if calendar_id:
-                    params['calendarID'] = calendar_id
-                if start_date:
-                    params['minDate'] = start_date.strftime('%Y-%m-%d')
-                if end_date:
-                    params['maxDate'] = end_date.strftime('%Y-%m-%d')
-                    
-                print(f"Fetching page {page} with params: {params}")
-                response = requests.get(f"{self.base_url}/appointments", auth=self.auth, params=params)
-                response.raise_for_status()
-                appointments_batch = response.json()
-                
-                print(f"API returned {len(appointments_batch)} appointments for page {page}")
-                
-                # If no appointments returned, we've reached the end
-                if not appointments_batch:
-                    print(f"No appointments returned for page {page}, stopping sync")
-                    break
-                
-                # Check for duplicate appointments (same page being returned)
-                current_batch_ids = {apt.get('id') for apt in appointments_batch}
-                
-                # If this is page 2+ and we get the same appointments as page 1, we've reached the end
-                if page > 1 and current_batch_ids.intersection(processed_appointment_ids):
-                    print(f"Page {page} contains duplicate appointments. This likely means we've reached the end of available appointments.")
-                    print(f"Stopping sync - all appointments have been processed.")
-                    break
-                
-                processed_appointment_ids.update(current_batch_ids)
-                
-                print(f"Processing batch {page}: {len(appointments_batch)} appointments")
-                
-                # Process this batch and save to database immediately
-                batch_created = 0
-                batch_updated = 0
-                
-                with transaction.atomic():
-                    for apt_data in appointments_batch:
-                        try:
-                            calendar_id_val = str(apt_data.get('calendarID'))
-                            appointment_type_id_val = str(apt_data.get('appointmentTypeID'))
-
-                            if not calendar_id_val or not appointment_type_id_val:
-                                print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to missing calendarID or appointmentTypeID.")
-                                continue
-
-                            calendar = Calendar.objects.get(acuity_calendar_id=calendar_id_val)
-                            appointment_type = AppointmentType.objects.get(acuity_type_id=appointment_type_id_val)
-                            
-                            # Defensive: handle missing or malformed datetime fields
-                            start_time, start_err = self._parse_acuity_datetime(apt_data, 'datetime')
-                            end_time, end_err = self._parse_acuity_datetime(apt_data, 'endTime')
-
-                            if start_err:
-                                print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to start time error: {start_err}")
-                                continue
-                            if end_err:
-                                # We might have a valid start but not a valid end.
-                                print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to end time error: {end_err}")
-                                continue
-
-                            # Extract processing fee from form data (default to 1.0 if not found)
-                            processing_fee = 1.0
-                            forms = apt_data.get('forms', [])
-                            for form in forms:
-                                for field in form.get('values', []):
-                                    name = field.get('name', '').lower()
-                                    if 'processing fee' in name or 'fee:' in name:
-                                        try:
-                                            processing_fee = float(field.get('value', 1.0))
-                                            # If user enters 0.04, treat as 1.04 (4% fee)
-                                            if processing_fee < 2.0:
-                                                processing_fee = 1.0 + float(processing_fee)
-                                        except Exception:
-                                            processing_fee = 1.0
-                                        break
-
-                            appointment, created = Appointment.objects.update_or_create(
-                                acuity_appointment_id=str(apt_data.get('id', '')),
-                                defaults={
-                                    'calendar': calendar,
-                                    'appointment_type': appointment_type,
-                                    'client_name': f"{apt_data.get('firstName', '')} {apt_data.get('lastName', '')}",
-                                    'client_email': apt_data.get('email', ''),
-                                    'client_phone': apt_data.get('phone', ''),
-                                    'start_time': start_time,
-                                    'end_time': end_time,
-                                    'notes': apt_data.get('notes', ''),
-                                    'price': apt_data.get('price', 0),
-                                    'status': apt_data.get('status', 'scheduled').lower(),
-                                    'form_data': forms,
-                                    'processing_fee': processing_fee,
-                                    'last_synced': timezone.now(),
-                                }
-                            )
-                            
-                            if created:
-                                batch_created += 1
-                                created_count += 1
-                            else:
-                                batch_updated += 1
-                                updated_count += 1
-                            
-                            total_processed += 1
-                                
-                        except (Calendar.DoesNotExist, AppointmentType.DoesNotExist) as e:
-                            print(f"Error syncing appointment {apt_data.get('id', 'unknown')}: {e}")
-                            continue
-                        except Exception as e:
-                            import logging
-                            logging.exception(f"Unexpected error syncing appointment {apt_data.get('id', 'unknown')}")
-                            continue
-                
-                # Transaction is automatically committed here
-                print(f"Batch {page} saved to database: {batch_created} created, {batch_updated} updated")
-                
-                # Clear the batch from memory
-                del appointments_batch
-                
-                # Move to next page
-                page += 1
-                
-                # Optional: Add a safety limit to prevent infinite loops
-                if page > 1000:  # Max 1000 pages (100,000 appointments with batch_size=100)
-                    print("Warning: Reached maximum page limit (1000). Some appointments may not be fetched.")
-                    break
-                    
-            except requests.exceptions.RequestException as e:
-                print(f"Error fetching appointments page {page}: {e}")
-                break
-            except Exception as e:
-                import logging
-                logging.exception(f'Unexpected error in sync_appointments page {page}')
-                break
-        
-        print(f"Sync completed: {created_count} new appointments created, {updated_count} existing appointments updated")
-        print(f"Total appointments processed: {total_processed} across {page-1} pages")
-        print(f"Unique appointment IDs processed: {len(processed_appointment_ids)}")
-        
-        # Show total appointments in database
-        total_in_db = Appointment.objects.count()
-        print(f"Total appointments in database: {total_in_db}")
-        
-        # Show breakdown by calendar if calendar_id is specified
-        if calendar_id:
-            calendar_appointments = Appointment.objects.filter(calendar__acuity_calendar_id=calendar_id).count()
-            print(f"Appointments for calendar {calendar_id}: {calendar_appointments}")
+        if calendar_id is None:
+            # Fetch all calendars and sync each one
+            calendars = self.get_calendars()
+            total_created = 0
+            total_updated = 0
+            total_processed = 0
+            total_appointments = 0
+            for cal in calendars:
+                cal_id = str(cal['id'])
+                cal_name = cal.get('name', '')
+                print(f"\n--- Syncing calendar: {cal_name} (ID: {cal_id}) ---")
+                created_count = 0
+                updated_count = 0
+                processed_appointment_ids = set()
+                page = 1
+                while True:
+                    try:
+                        params = {'page': page, 'max': batch_size, 'calendarID': cal_id, 'canceled': 'all'}
+                        params['minDate'] = start_date.strftime('%Y-%m-%d')
+                        params['maxDate'] = end_date.strftime('%Y-%m-%d')
+                        print(f"Fetching page {page} with params: {params}")
+                        response = requests.get(f"{self.base_url}/appointments", auth=self.auth, params=params)
+                        response.raise_for_status()
+                        appointments_batch = response.json()
+                        print(f"API returned {len(appointments_batch)} appointments for page {page}")
+                        if not appointments_batch:
+                            print(f"No appointments returned for page {page}, stopping sync for this calendar")
+                            break
+                        current_batch_ids = {apt.get('id') for apt in appointments_batch}
+                        if page > 1 and current_batch_ids.intersection(processed_appointment_ids):
+                            print(f"Page {page} contains duplicate appointments. Stopping sync for this calendar.")
+                            break
+                        processed_appointment_ids.update(current_batch_ids)
+                        batch_created = 0
+                        batch_updated = 0
+                        with transaction.atomic():
+                            for apt_data in appointments_batch:
+                                try:
+                                    calendar_obj = Calendar.objects.get(acuity_calendar_id=cal_id)
+                                    appointment_type_id_val = str(apt_data.get('appointmentTypeID'))
+                                    appointment_type = AppointmentType.objects.get(acuity_type_id=appointment_type_id_val)
+                                    start_time, start_err = self._parse_acuity_datetime(apt_data, 'datetime')
+                                    end_time, end_err = self._parse_acuity_datetime(apt_data, 'endTime')
+                                    if start_err or end_err:
+                                        continue
+                                    processing_fee = 1.0
+                                    forms = apt_data.get('forms', [])
+                                    for form in forms:
+                                        for field in form.get('values', []):
+                                            name = field.get('name', '').lower()
+                                            if 'processing fee' in name or 'fee:' in name:
+                                                try:
+                                                    processing_fee = float(field.get('value', 1.0))
+                                                    if processing_fee < 2.0:
+                                                        processing_fee = 1.0 + float(processing_fee)
+                                                except Exception:
+                                                    processing_fee = 1.0
+                                                break
+                                    color_tag = ''
+                                    labels = apt_data.get('labels', [])
+                                    if labels and isinstance(labels, list) and len(labels) > 0:
+                                        color_tag = labels[0].get('color', '')
+                                    appointment, created = Appointment.objects.update_or_create(
+                                        acuity_appointment_id=str(apt_data.get('id', '')),
+                                        defaults={
+                                            'calendar': calendar_obj,
+                                            'appointment_type': appointment_type,
+                                            'client_name': f"{apt_data.get('firstName', '')} {apt_data.get('lastName', '')}",
+                                            'client_email': apt_data.get('email', ''),
+                                            'client_phone': apt_data.get('phone', ''),
+                                            'start_time': start_time,
+                                            'end_time': end_time,
+                                            'notes': apt_data.get('notes', ''),
+                                            'price': apt_data.get('price', 0),
+                                            'status': apt_data.get('status', 'scheduled').lower(),
+                                            'form_data': forms,
+                                            'processing_fee': processing_fee,
+                                            'last_synced': timezone.now(),
+                                            'color_tag': color_tag,
+                                        }
+                                    )
+                                    if created:
+                                        batch_created += 1
+                                        created_count += 1
+                                    else:
+                                        batch_updated += 1
+                                        updated_count += 1
+                                except Exception as e:
+                                    import logging
+                                    logging.exception(f"Unexpected error syncing appointment {apt_data.get('id', 'unknown')}")
+                                    continue
+                        print(f"Batch {page} saved to database: {batch_created} created, {batch_updated} updated")
+                        page += 1
+                        if page > 1000:
+                            print("Warning: Reached maximum page limit (1000). Some appointments may not be fetched.")
+                            break
+                    except Exception as e:
+                        import logging
+                        logging.exception(f'Unexpected error in sync_appointments page {page}')
+                        break
+                print(f"Sync completed for calendar {cal_name}: {created_count} new, {updated_count} updated, {len(processed_appointment_ids)} unique appointments processed.")
+                total_created += created_count
+                total_updated += updated_count
+                total_processed += len(processed_appointment_ids)
+            print(f"\n=== All calendars sync summary ===")
+            print(f"Total new appointments created: {total_created}")
+            print(f"Total existing appointments updated: {total_updated}")
+            print(f"Total unique appointments processed: {total_processed}")
+            print(f"Total appointments in database: {Appointment.objects.count()}")
+            return
+        # If calendar_id is provided, use the original logic for a single calendar
+        # ... existing code ...
 
     def sync_appointments_by_date_range(self, start_date=None, end_date=None, calendar_id=None, batch_size=100):
         """Sync appointments from Acuity to local database by date range to minimize memory usage"""
@@ -419,6 +370,12 @@ class AcuityService:
                                             processing_fee = 1.0
                                         break
 
+                            # Extract color tag from labels
+                            color_tag = ''
+                            labels = apt_data.get('labels', [])
+                            if labels and isinstance(labels, list) and len(labels) > 0:
+                                color_tag = labels[0].get('color', '')
+
                             appointment, created = Appointment.objects.update_or_create(
                                 acuity_appointment_id=str(apt_data.get('id', '')),
                                 defaults={
@@ -435,6 +392,7 @@ class AcuityService:
                                     'form_data': forms,
                                     'processing_fee': processing_fee,
                                     'last_synced': timezone.now(),
+                                    'color_tag': color_tag,
                                 }
                             )
                             

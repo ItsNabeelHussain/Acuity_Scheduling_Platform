@@ -7,6 +7,7 @@ from reportlab.lib import colors
 from django.http import HttpResponse
 from django.utils import timezone
 import io
+from .models import PricingSetting
 
 class PDFGenerator:
     def __init__(self):
@@ -115,6 +116,21 @@ class PDFGenerator:
             buffer.close()
             raise e
 
+    def _get_pricing(self, category, location=None):
+        try:
+            if location:
+                setting = PricingSetting.objects.filter(category=category, location=location).first()
+                if setting:
+                    return float(setting.price)
+            # fallback to default (no location)
+            setting = PricingSetting.objects.filter(category=category, location="").first()
+            if setting:
+                return float(setting.price)
+        except Exception:
+            pass
+        # fallback default if not found
+        return 0.0
+
     def generate_appointment_confirmation(self, appointment):
         """Generate PDF confirmation for an appointment (custom layout for Hibachi)"""
         buffer = io.BytesIO()
@@ -221,6 +237,11 @@ class PDFGenerator:
             logging.debug(f"Fee value before calculations: {fee} (type: {type(fee)})")
             # Use processing_fee from appointment model (default 1.0)
             processing_fee = getattr(appointment, 'processing_fee', 1.0) or 1.0
+            # Fetch dynamic prices
+            # Optionally, you can use appointment/calendar location if available
+            location = getattr(appointment, 'location', None)
+            adult_price = self._get_pricing('adult', location)
+            kid_price = self._get_pricing('kid', location)
             # --- HEADER TABLE ---
             header_data = [
                 [Paragraph(f"<b>Company Name:</b> {company_name}", self.styles['Normal']),
@@ -351,8 +372,8 @@ class PDFGenerator:
                 ["", "Quantity", "Total ($)"]
             ]
             # Adult, Kid rows
-            order_table_data.append(["Adult", str(num_adult), f"${int(num_adult)*50}"])
-            order_table_data.append(["Kid", str(num_kid), f"${int(num_kid)*25}"])
+            order_table_data.append(["Adult", str(num_adult), f"${int(num_adult)*adult_price}"])
+            order_table_data.append(["Kid", str(num_kid), f"${int(num_kid)*kid_price}"])
             # Other items
             for key in ["Noodle / rice", "Gyoza", "Edamame", "FM", "Lobster", "Side"]:
                 order_table_data.append([key, str(order_breakdown[key]['count']), f"${order_breakdown[key]['total']}"])
@@ -384,10 +405,10 @@ class PDFGenerator:
             elements.append(fees_table)
             elements.append(Spacer(1, 8))
             # --- MENU ---
-            elements.append(Paragraph("<b>****menu</b>", self.styles['Normal']))
-            elements.append(Spacer(1, 16))
+            # elements.append(Paragraph("<b>****menu</b>", self.styles['Normal']))
+            # elements.append(Spacer(1, 16))
             # --- TOTALS ---
-            total1 = int(num_adult)*50 + int(num_kid)*25
+            total1 = int(num_adult)*adult_price + int(num_kid)*kid_price
             subtotal = total1 * processing_fee
             elements.append(Paragraph(f"<b>Subtotal ($):</b> {total1} (Cash Payment only day of, tip is not included. Other payment method, let us know ASAP.)", self.styles['Normal']))
             # Show the processing fee as a dollar amount (difference due to multiplier)

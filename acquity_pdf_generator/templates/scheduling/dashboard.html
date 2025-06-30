@@ -126,6 +126,20 @@
         cursor: pointer; transition: background-color 0.2s;
     }
     .modal-btn:hover { background: var(--secondary-color); }
+    .color-dot {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        margin-right: 8px;
+        vertical-align: middle;
+        border: 1px solid #ccc;
+    }
+    .color-label {
+        font-size: 13px;
+        vertical-align: middle;
+        color: #333;
+    }
 </style>
 
 <div class="container-fluid py-4">
@@ -203,6 +217,7 @@
                         <th>Service</th>
                         <th>Date & Time</th>
                         <th>Status</th>
+                        <th>Color Tag</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -234,13 +249,17 @@
                             </span>
                         </td>
                         <td>
+                            <span class="color-dot" style="background: {{ appt.color_tag|default:'#888' }};"></span>
+                            <span class="color-label">{{ appt.color_tag|default:'N/A' }}</span>
+                        </td>
+                        <td>
                             <a href="{% url 'appointment_detail' appt.id %}" class="btn-details">Details</a>
                             <a href="{% url 'download_pdf' appt.id %}" class="btn-pdf-download ms-1"><i class="fas fa-file-pdf"></i></a>
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="{% if user.is_superuser %}6{% else %}5{% endif %}" class="text-center py-5">
+                        <td colspan="{% if user.is_superuser %}7{% else %}6{% endif %}" class="text-center py-5">
                             <p class="mb-0">No appointments found.</p>
                             {% if search_query %}
                             <small class="text-muted">Try a different search term.</small>

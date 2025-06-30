@@ -377,7 +377,7 @@ class PDFGenerator:
             # Other items
             for key in ["Noodle / rice", "Gyoza", "Edamame", "FM", "Lobster", "Side"]:
                 order_table_data.append([key, str(order_breakdown[key]['count']), f"${order_breakdown[key]['total']}"])
-            order_table = Table(order_table_data, colWidths=[2.5*inch, 2*inch, 2*inch])
+            order_table = Table(order_table_data, colWidths=[2.8*inch, 2.1*inch, 2.1*inch])
             order_table.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.lightblue),
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'),
@@ -387,7 +387,8 @@ class PDFGenerator:
             ]))
             elements.append(order_table)
             elements.append(Spacer(1, 8))
-            elements.append(Paragraph("Our meal comes with veggies, fried rice, and salad. Sake is also included,Please ensure table, chairs, plates and utensils are also setup prior to the chef's arrival.", self.styles['Normal']))
+            elements.append(Paragraph("Our meal comes with veggies, fried rice, and salad. Sake is also included.", self.styles['Normal']))
+            elements.append(Paragraph("Please ensure table, chairs, plates and utensils are also setup prior to the chef's arrival.", self.styles['Normal']))
             elements.append(Spacer(1, 8))
             # --- FEES ---
             fees_data = [

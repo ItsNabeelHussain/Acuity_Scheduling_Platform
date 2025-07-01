@@ -174,7 +174,7 @@ class AcuityService:
         from datetime import datetime, timedelta
         
         # Calculate date range: yesterday to 3 weeks (21 days) in the future
-        end_date = datetime.now() + timedelta(days=2)
+        end_date = datetime.now() + timedelta(days=21)
         start_date = datetime.now() - timedelta(days=1)
         
         print(f"Starting sync with batch size: {batch_size}")

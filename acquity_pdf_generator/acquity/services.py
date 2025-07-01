@@ -172,13 +172,13 @@ class AcuityService:
         from django.db import transaction
         from datetime import datetime, timedelta
         
-        # Calculate date range for last 2 months (60 days)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=60)
+        # Calculate date range: yesterday to 3 weeks (21 days) in the future
+        end_date = datetime.now() + timedelta(days=21)
+        start_date = datetime.now() - timedelta(days=1)
         
         print(f"Starting sync with batch size: {batch_size}")
         print(f"Calendar ID filter: {calendar_id}")
-        print(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} (last 60 days)")
+        print(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} (last 21 days)")
         
         if calendar_id is None:
             # Fetch all calendars and sync each one

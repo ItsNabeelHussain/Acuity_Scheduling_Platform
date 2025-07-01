@@ -8,6 +8,8 @@ from django.http import HttpResponse
 from django.utils import timezone
 import io
 from .models import PricingSetting
+from acquity.utils import get_form_field
+import re
 
 class PDFGenerator:
     def __init__(self):
@@ -161,46 +163,65 @@ class PDFGenerator:
             }
             # Parse form_data for custom fields
             if hasattr(appointment, 'form_data') and appointment.form_data:
-                for form in appointment.form_data:
+                forms = appointment.form_data
+                form_fields = {}
+                # Build a normalized field dictionary for all possible fields
+                for form in forms:
                     for field in form.get('values', []):
-                        name = field.get('name', '').lower()
+                        name = field.get('name', '').strip().upper()
                         value = field.get('value', '')
-                        if 'address' in name:
-                            address = value
-                        elif 'seating' in name:
-                            seating = value
-                        elif 'adult' in name and 'number' in name:
-                            try: num_adult = int(value)
-                            except: num_adult = value
-                        elif 'kid' in name and 'number' in name:
-                            try: num_kid = int(value)
-                            except: num_kid = value
-                        elif 'guest' in name and ('how many' in name or 'number' in name):
-                            try: num_guests = int(value)
-                            except: num_guests = value
-                        elif 'allerg' in name:
-                            allergies = value
-                        elif 'menu' in name:
-                            menu = value
-                        elif 'travel' in name:
-                            traveling_fee = value
-                        elif 'deposit' in name:
-                            deposit = value
-                        elif 'protein' in name:
-                            try: protein = int(value)
-                            except: protein = value
-                        elif 'fee:' in name:
-                            try:
-                                fee = float(value)
-                            except:
-                                fee = 0.0
-                        # Order breakdown
-                        for key in order_breakdown.keys():
-                            if key.lower() in name:
-                                try:
-                                    order_breakdown[key]['count'] = int(value)
-                                except:
-                                    order_breakdown[key]['count'] = value
+                        form_fields[name] = value
+                # Use robust extraction for key fields
+                address = get_form_field(forms, [
+                    'full address',
+                    'address',
+                    'location',
+                    'event address',
+                    'party address',
+                    'venue address',
+                    'address of the event',
+                ])
+                guests = get_form_field(forms, ['order', 'how many adult', '# of guests'])
+                num_adult = get_form_field(forms, ['how many adult', 'number of adults', '# of guests'])
+                num_kid = get_form_field(forms, ['how many kid', 'number of children', '# of guests'])
+                allergies = get_form_field(forms, ['allergies', 'allergy', 'restrictions'])
+                # Special parsing for '# OF GUESTS' field if it contains both adults and kids, with flexible order and separators
+                guests_field = get_form_field(forms, ['# of guests'])
+                if guests_field:
+                    # Find all occurrences of adults and kids with flexible order and separators
+                    adult_matches = re.findall(r'(\d+)\s*adults?|adults?\s*(\d+)', guests_field, re.IGNORECASE)
+                    kid_matches = re.findall(r'(\d+)\s*kid[s]?|kid[s]?\s*(\d+)', guests_field, re.IGNORECASE)
+                    # adult_matches and kid_matches are lists of tuples; extract the first non-empty group from each tuple
+                    def extract_first_number(matches):
+                        for m in matches:
+                            for g in m:
+                                if g and g.isdigit():
+                                    return int(g)
+                        return None
+                    adult_count = extract_first_number(adult_matches)
+                    kid_count = extract_first_number(kid_matches)
+                    if adult_count is not None:
+                        num_adult = adult_count
+                    if kid_count is not None:
+                        num_kid = kid_count
+                if 'seating' in form_fields:
+                    seating = form_fields['seating']
+                if 'menu' in form_fields:
+                    menu = form_fields['menu']
+                if 'travel' in form_fields:
+                    traveling_fee = form_fields['travel']
+                if 'deposit' in form_fields:
+                    deposit = form_fields['deposit']
+                if 'protein' in form_fields:
+                    try: protein = int(form_fields['protein'])
+                    except: protein = form_fields['protein']
+                # Order breakdown
+                for key in order_breakdown.keys():
+                    if key.lower() in form_fields:
+                        try:
+                            order_breakdown[key]['count'] = int(form_fields[key])
+                        except:
+                            order_breakdown[key]['count'] = form_fields[key]
             # Fallbacks
             if not address:
                 address = getattr(appointment, 'notes', '')
@@ -330,9 +351,9 @@ class PDFGenerator:
                         protein_lines.append(f'{val} {pf.title()}')
                 if protein_lines:
                     order_details_content.append(f'<font size="10">&#9679; ' + ' / '.join(protein_lines) + '</font>')
-                # Sides
+                # Sides (exclude 'Additional Side ($15)' and 'Additional Side ($10)' from order details)
                 side_lines = []
-                for sf in side_fields:
+                for sf in ['NOODLE / RICE', 'GYOZA', 'EDAMAME']:
                     val = form_fields.get(sf)
                     if val:
                         side_lines.append(f'{val} {sf.title()}')

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .models import Calendar, AppointmentType, Appointment
 from django.db import transaction
+from acquity.utils import get_form_field
 
 class AcuityService:
     def __init__(self):
@@ -173,7 +174,7 @@ class AcuityService:
         from datetime import datetime, timedelta
         
         # Calculate date range: yesterday to 3 weeks (21 days) in the future
-        end_date = datetime.now() + timedelta(days=21)
+        end_date = datetime.now() + timedelta(days=2)
         start_date = datetime.now() - timedelta(days=1)
         
         print(f"Starting sync with batch size: {batch_size}")
@@ -355,20 +356,17 @@ class AcuityService:
                                 continue
 
                             # Extract processing fee from form data (default to 1.0 if not found)
-                            processing_fee = 1.0
                             forms = apt_data.get('forms', [])
-                            for form in forms:
-                                for field in form.get('values', []):
-                                    name = field.get('name', '').lower()
-                                    if 'processing fee' in name or 'fee:' in name:
-                                        try:
-                                            processing_fee = float(field.get('value', 1.0))
-                                            # If user enters 0.04, treat as 1.04 (4% fee)
-                                            if processing_fee < 2.0:
-                                                processing_fee = 1.0 + float(processing_fee)
-                                        except Exception:
-                                            processing_fee = 1.0
-                                        break
+                            processing_fee = get_form_field(forms, ['processing fee', 'fee:'])
+                            if processing_fee is not None:
+                                try:
+                                    processing_fee = float(processing_fee)
+                                    if processing_fee < 2.0:
+                                        processing_fee = 1.0 + float(processing_fee)
+                                except Exception:
+                                    processing_fee = 1.0
+                            else:
+                                processing_fee = 1.0
 
                             # Extract color tag from labels
                             color_tag = ''

@@ -146,4 +146,4 @@ import os
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-OPENAI_API_KEY="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"
+OPENAI_API_KEY = "ss"

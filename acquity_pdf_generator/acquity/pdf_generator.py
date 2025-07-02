@@ -343,15 +343,30 @@ class PDFGenerator:
                         elements.append(Spacer(1, 10))
                 
                 # --- ORDER BREAKDOWN ---
-                order_table_data = [
-                    ["", "Quantity", "Total ($)"]
+                # Map form field names to PricingSetting categories and display names
+                item_fields = [
+                    ("Adult", num_adult, "adult"),
+                    ("Kid", num_kid, "kid"),
+                    ("Noodle / rice", noodle_rice, "noodle_rice"),
+                    ("Gyoza", gyoza, "gyoza"),
+                    ("Edamame", edamame, "edamame"),
+                    ("Filet Mignon", filet_mignon, "fm"),
+                    ("Lobster", lobster_tail, "lobster"),
+                    ("Side", add_protein, "side"),
                 ]
-                # Adult, Kid rows
-                order_table_data.append(["Adult", str(num_adult), f"${int(num_adult)*adult_price}"])
-                order_table_data.append(["Kid", str(num_kid), f"${int(num_kid)*kid_price}"])
-                # Other items
-                for key in ["Noodle / rice", "Gyoza", "Edamame", "FM", "Lobster", "Side"]:
-                    order_table_data.append([key, str(order_breakdown[key]['count']), f"${order_breakdown[key]['total']}"])
+                # Add static price items
+                item_fields.append(("Additional Premium protein ($15)", add_premium_protein, None))
+                item_fields.append(("Additional Protein ($10)", add_protein, None))
+                order_table_data = [["Item", "Quantity", "Total ($)"]]
+                for label, qty, category in item_fields:
+                    if label == "Additional Premium protein ($15)":
+                        price = 15.0
+                    elif label == "Additional Protein ($10)":
+                        price = 10.0
+                    else:
+                        price = self._get_pricing(category, location) if category else 0.0
+                    total = float(qty) * float(price)
+                    order_table_data.append([label, str(qty), f"${total}"])
                 order_table = Table(order_table_data, colWidths=[2.8*inch, 2.1*inch, 2.1*inch])
                 order_table.setStyle(TableStyle([
                     ('BACKGROUND', (0,0), (-1,0), colors.lightblue),
@@ -385,12 +400,22 @@ class PDFGenerator:
                 # elements.append(Spacer(1, 16))
                 # --- TOTALS ---
                 total1 = int(num_adult)*adult_price + int(num_kid)*kid_price
-                subtotal = total1 * processing_fee
-                elements.append(Paragraph(f"<b>Subtotal ($):</b> {total1} (Cash Payment only day of, tip is not included. Other payment method, let us know ASAP.)", self.styles['Normal']))
+                # Calculate subtotal as the sum of all item totals
+                subtotal = 0.0
+                for label, qty, category in item_fields:
+                    if label == "Additional Premium protein ($15)":
+                        price = 15.0
+                    elif label == "Additional Protein ($10)":
+                        price = 10.0
+                    else:
+                        price = self._get_pricing(category, location) if category else 0.0
+                    total = float(qty) * float(price)
+                    subtotal += total
+                elements.append(Paragraph(f"<b>Subtotal ($):</b> {subtotal:.2f} (Cash Payment only day of, tip is not included. Other payment method, let us know ASAP.)", self.styles['Normal']))
                 # Show the processing fee as a dollar amount (difference due to multiplier)
-                processing_fee_amount = subtotal - total1
-                if processing_fee_amount > 0:
-                    elements.append(Paragraph(f"<b>Processing Fee ($):</b> {processing_fee_amount:.2f}", self.styles['Normal']))
+                # processing_fee_amount = subtotal - total1
+                # if processing_fee_amount > 0:
+                    # elements.append(Paragraph(f"<b>Processing Fee ($):</b> {processing_fee_amount:.2f}", self.styles['Normal']))
                 elements.append(Paragraph(f"<b>Total (Deposit deducted) ($):</b> {subtotal:.2f}", self.styles['Normal']))
                 elements.append(Spacer(1, 8))
                 # --- ALLERGIES ---

@@ -244,7 +244,7 @@ class PDFGenerator:
                 import logging
                 logging.debug(f"Fee value before calculations: {fee} (type: {type(fee)})")
                 # Use processing_fee from appointment model (default 1.0)
-                processing_fee = getattr(appointment, 'processing_fee', 1.0) or 1.0
+                processing_fee = getattr(appointment, 'processing_fee', 0.0) or 0.0
                 # Fetch dynamic prices
                 # Optionally, you can use appointment/calendar location if available
                 location = getattr(appointment, 'location', None)

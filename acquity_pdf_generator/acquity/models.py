@@ -73,7 +73,7 @@ class Appointment(models.Model):
     color_tag = models.CharField(max_length=32, blank=True, default="")
 
     # Processing fee multiplier (e.g., 1.04 for 4% fee)
-    processing_fee = models.FloatField(default=1.0, help_text="Multiplier for processing fee (e.g., 1.04 for 4% fee)")
+    processing_fee = models.FloatField(default=0.0, help_text="Multiplier for processing fee (e.g., 1.04 for 4% fee)")
     
     # Tracking
     created_at = models.DateTimeField(auto_now_add=True)

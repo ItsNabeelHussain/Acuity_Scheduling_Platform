@@ -10,6 +10,7 @@ import io
 from .models import PricingSetting
 from acquity.utils import get_form_field
 import re
+from acquity.openai_utils import extract_guest_counts_with_gpt
 
 class PDFGenerator:
     def __init__(self):
@@ -182,66 +183,32 @@ class PDFGenerator:
                     'address of the event',
                 ])
                 guests = get_form_field(forms, ['order', 'how many adult', '# of guests'])
-                # Helper to check if a value is a valid number (not N/A, not empty, not None)
-                def is_valid_number(val):
-                    try:
-                        return val is not None and str(val).strip().upper() != 'N/A' and str(val).strip() != '' and int(val) >= 0
-                    except Exception:
-                        return False
-                # Extract adult/kid from their fields
+                # Fetch all relevant values directly from Acuity form data
                 num_adult_val = get_form_field(forms, ['how many adult', 'number of adults'])
                 num_kid_val = get_form_field(forms, ['how many kid', 'number of children'])
-                guests_field = get_form_field(forms, ['# of guests'])
-                num_adult = int(num_adult_val) if is_valid_number(num_adult_val) else None
-                num_kid = int(num_kid_val) if is_valid_number(num_kid_val) else None
-                # If both are missing, try to parse guests_field
-                if (num_adult is None or num_kid is None) and guests_field:
-                    # Try regex for both adults and kids
-                    adult_matches = re.findall(r'(\d+)\s*adults?|adults?\s*(\d+)', guests_field, re.IGNORECASE)
-                    kid_matches = re.findall(r'(\d+)\s*kid[s]?|kid[s]?\s*(\d+)', guests_field, re.IGNORECASE)
-                    def extract_first_number(matches):
-                        for m in matches:
-                            for g in m:
-                                if g and g.isdigit():
-                                    return int(g)
-                        return None
-                    adult_count = extract_first_number(adult_matches)
-                    kid_count = extract_first_number(kid_matches)
-                    if adult_count is not None:
-                        num_adult = adult_count
-                    if kid_count is not None:
-                        num_kid = kid_count
-                    # If both are still None, try to parse as a single number (all adults, 0 kids)
-                    if (num_adult is None or num_kid is None):
-                        try:
-                            single_val = int(guests_field)
-                            if num_adult is None:
-                                num_adult = single_val
-                            if num_kid is None:
-                                num_kid = 0
-                        except Exception:
-                            pass
-                # Fallback: extract from 'order' field if both num_adult and num_kid are zero
-                order_field = get_form_field(forms, ['order'])
-                if order_field and (num_adult == 0 and num_kid == 0):
-                    # Try to extract '24 Adults', '3 Kids', '29 total guests', etc.
-                    adult_match = re.search(r'(\d+)\s*adults?', order_field, re.IGNORECASE)
-                    kid_match = re.search(r'(\d+)\s*kids?', order_field, re.IGNORECASE)
-                    total_match = re.search(r'(\d+)\s*total\s*guests?', order_field, re.IGNORECASE)
-                    if adult_match:
-                        num_adult = int(adult_match.group(1))
-                    if kid_match:
-                        num_kid = int(kid_match.group(1))
-                    if not (adult_match or kid_match) and total_match:
-                        # If only total is present, treat as all adults
-                        num_adult = int(total_match.group(1))
-                        num_kid = 0
-                    num_guests = num_adult + num_kid
-                # Fallbacks
-                if num_adult is None:
-                    num_adult = 0
-                if num_kid is None:
-                    num_kid = 0
+                noodle_rice = get_form_field(forms, ['noodle / rice'])
+                gyoza = get_form_field(forms, ['appetizer: pork gyoza'])
+                edamame = get_form_field(forms, ['appetizer: edamame'])
+                filet_mignon = get_form_field(forms, ['filet mignon (upgraded protein)'])
+                lobster_tail = get_form_field(forms, ['lobster tail (upgraded protein)'])
+                add_premium_protein = get_form_field(forms, ['additional premium protein ($15)'])
+                add_protein = get_form_field(forms, ['additional protein ($10)'])
+                travel_fee = get_form_field(forms, ['travel fee'])
+                deposit = get_form_field(forms, ['deposit (deducted from total)'])
+                processing_fee = get_form_field(forms, ['processing fee (if any)'])
+                processing_fee = float(processing_fee) if processing_fee and str(processing_fee).replace('.','',1).isdigit() else 0.0
+                # Convert to int/float where appropriate
+                num_adult = int(num_adult_val) if num_adult_val and str(num_adult_val).strip().isdigit() else 0
+                num_kid = int(num_kid_val) if num_kid_val and str(num_kid_val).strip().isdigit() else 0
+                noodle_rice = int(noodle_rice) if noodle_rice and str(noodle_rice).strip().isdigit() else 0
+                gyoza = int(gyoza) if gyoza and str(gyoza).strip().isdigit() else 0
+                edamame = int(edamame) if edamame and str(edamame).strip().isdigit() else 0
+                filet_mignon = int(filet_mignon) if filet_mignon and str(filet_mignon).strip().isdigit() else 0
+                lobster_tail = int(lobster_tail) if lobster_tail and str(lobster_tail).strip().isdigit() else 0
+                add_premium_protein = int(add_premium_protein) if add_premium_protein and str(add_premium_protein).strip().isdigit() else 0
+                add_protein = int(add_protein) if add_protein and str(add_protein).strip().isdigit() else 0
+                travel_fee = float(travel_fee) if travel_fee and str(travel_fee).replace('.','',1).isdigit() else 0.0
+                deposit = float(deposit) if deposit and str(deposit).replace('.','',1).isdigit() else 0.0
                 num_guests = num_adult + num_kid
                 if not address:
                     address = getattr(appointment, 'notes', '')
@@ -353,43 +320,10 @@ class PDFGenerator:
                             value = field.get('value', '')
                             form_fields[name] = value
                     order_details_content = []
-                    # Heading
-                    order_details_content.append('<b>Order Details:</b>')
-                    # Guests/party size
-                    guests = form_fields.get('ORDER') or form_fields.get('HOW MANY ADULT?')
-                    if guests:
-                        order_details_content.append(f'<font size="10">&#9679; {guests}</font>')
-                    # Total Protein
-                    total_protein = form_fields.get('TOTAL PROTEIN')
-                    if total_protein:
-                        order_details_content.append(f'<font size="10">&#9679; Total Protein: {total_protein}</font>')
-                    # Proteins
-                    protein_lines = []
-                    for pf in protein_fields:
-                        val = form_fields.get(pf)
-                        if val:
-                            protein_lines.append(f'{val} {pf.title()}')
-                    if protein_lines:
-                        order_details_content.append(f'<font size="10">&#9679; ' + ' / '.join(protein_lines) + '</font>')
-                    # Sides (exclude 'Additional Side ($15)' and 'Additional Side ($10)' from order details)
-                    side_lines = []
-                    for sf in ['NOODLE / RICE', 'GYOZA', 'EDAMAME']:
-                        val = form_fields.get(sf)
-                        if val:
-                            side_lines.append(f'{val} {sf.title()}')
-                    if side_lines:
-                        order_details_content.append(f'<font size="10">&#9679; Sides:</font>')
-                        for s in side_lines:
-                            order_details_content.append(f'<font size="10">&#9679; {s}</font>')
-                    # Travel Fee, Tips, Total, Deposit
-                    for label in ['TRAVEL FEE', 'TIPS', 'TOTAL', 'DEPOSIT']:
-                        val = form_fields.get(label)
-                        if val:
-                            order_details_content.append(f'<font size="10">&#9679; {label.title()}: {val}</font>')
-                    # Allergies (if present)
-                    allergy = form_fields.get('ALLERGIES') or form_fields.get('ALLERGY')
-                    if allergy:
-                        order_details_content.append(f'allergies: {allergy}')
+                    # Only show the 'order' field value in Order Details section
+                    order_summary = get_form_field(forms, ['order'])
+                    if order_summary:
+                        order_details_content.append(f'<font size="10">&#9679; {order_summary}</font>')
                     if order_details_content:
                         order_details_text = '<br/><br/>'.join(order_details_content)
                         order_details_paragraph = Paragraph(order_details_text, self.styles['Normal'])
@@ -433,11 +367,11 @@ class PDFGenerator:
                 elements.append(Spacer(1, 8))
                 # --- FEES ---
                 fees_data = [
-                    ["Traveling Fee", traveling_fee or ""],
+                    ["Traveling Fee", travel_fee or ""],
                     ["Deposit", deposit or ""],
                 ]
-                if fee is not None:
-                    fees_data.append(["Processing Fee", f"${fee:.2f}"])
+                if processing_fee is not None:
+                    fees_data.append(["Processing Fee", f"${processing_fee:.2f}"])
                 fees_table = Table(fees_data, colWidths=[2.5*inch, 4.5*inch])
                 fees_table.setStyle(TableStyle([
                     ('ALIGN', (0,0), (-1,-1), 'LEFT'),

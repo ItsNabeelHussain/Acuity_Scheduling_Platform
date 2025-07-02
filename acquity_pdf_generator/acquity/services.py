@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .models import Calendar, AppointmentType, Appointment
 from django.db import transaction
 from acquity.utils import get_form_field
+from acquity.openai_utils import extract_guest_counts_with_gpt
 
 class AcuityService:
     def __init__(self):

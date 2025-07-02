@@ -221,6 +221,22 @@ class PDFGenerator:
                                 num_kid = 0
                         except Exception:
                             pass
+                # Fallback: extract from 'order' field if both num_adult and num_kid are zero
+                order_field = get_form_field(forms, ['order'])
+                if order_field and (num_adult == 0 and num_kid == 0):
+                    # Try to extract '24 Adults', '3 Kids', '29 total guests', etc.
+                    adult_match = re.search(r'(\d+)\s*adults?', order_field, re.IGNORECASE)
+                    kid_match = re.search(r'(\d+)\s*kids?', order_field, re.IGNORECASE)
+                    total_match = re.search(r'(\d+)\s*total\s*guests?', order_field, re.IGNORECASE)
+                    if adult_match:
+                        num_adult = int(adult_match.group(1))
+                    if kid_match:
+                        num_kid = int(kid_match.group(1))
+                    if not (adult_match or kid_match) and total_match:
+                        # If only total is present, treat as all adults
+                        num_adult = int(total_match.group(1))
+                        num_kid = 0
+                    num_guests = num_adult + num_kid
                 # Fallbacks
                 if num_adult is None:
                     num_adult = 0

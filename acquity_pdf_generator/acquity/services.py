@@ -227,18 +227,16 @@ class AcuityService:
                                     end_time, end_err = self._parse_acuity_datetime(apt_data, 'endTime')
                                     if start_err or end_err:
                                         continue
-                                    processing_fee = 1.0
+                                    processing_fee = 0.0
                                     forms = apt_data.get('forms', [])
                                     for form in forms:
                                         for field in form.get('values', []):
                                             name = field.get('name', '').lower()
                                             if 'processing fee' in name or 'fee:' in name:
                                                 try:
-                                                    processing_fee = float(field.get('value', 1.0))
-                                                    if processing_fee < 2.0:
-                                                        processing_fee = 1.0 + float(processing_fee)
+                                                    processing_fee = float(field.get('value', 0.0))
                                                 except Exception:
-                                                    processing_fee = 1.0
+                                                    processing_fee = 0.0
                                                 break
                                     color_tag = ''
                                     labels = apt_data.get('labels', [])
@@ -356,18 +354,16 @@ class AcuityService:
                                 print(f"Skipping appointment {apt_data.get('id', 'N/A')} due to end time error: {end_err}")
                                 continue
 
-                            # Extract processing fee from form data (default to 1.0 if not found)
+                            # Extract processing fee from form data (default to 0.0 if not found)
                             forms = apt_data.get('forms', [])
                             processing_fee = get_form_field(forms, ['processing fee', 'fee:'])
                             if processing_fee is not None:
                                 try:
                                     processing_fee = float(processing_fee)
-                                    if processing_fee < 2.0:
-                                        processing_fee = 1.0 + float(processing_fee)
                                 except Exception:
-                                    processing_fee = 1.0
+                                    processing_fee = 0.0
                             else:
-                                processing_fee = 1.0
+                                processing_fee = 0.0
 
                             # Extract color tag from labels
                             color_tag = ''

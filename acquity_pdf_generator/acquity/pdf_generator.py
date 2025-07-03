@@ -1,6 +1,6 @@
 # scheduling/pdf_generator.py
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
@@ -144,6 +144,67 @@ class PDFGenerator:
             company_name = "Mobile Hibachi 4U"
             company_phone = "(555) 123-4567"  # Replace with real value if available
             company_website = "www.mobilehibachi4u.com"
+            # Seating arrangement image path
+            image_path = 'seating_arrangement.png'  # Adjust path if needed
+            try:
+                img = Image(image_path, width=200, height=80)  # Larger for label width
+                img.hAlign = 'RIGHT'
+            except Exception as img_exc:
+                img = None
+                import logging
+                logging.warning(f"Could not load seating arrangement image: {img_exc}")
+            # --- Company Name and Image Row ---
+            company_title_style = ParagraphStyle(
+                'CompanyTitle', fontSize=28, fontName='Helvetica-Bold', textColor=colors.HexColor('#222222'), alignment=0, spaceAfter=0, spaceBefore=0
+            )
+            company_title = Paragraph(company_name, company_title_style)
+            # Recommended Seating Arrangement label above image
+            seating_label_style = ParagraphStyle(
+                'SeatingLabel', fontSize=11, fontName='Helvetica-Bold', textColor=colors.HexColor('#222222'), alignment=1, leading=12, spaceAfter=0, spaceBefore=0, wordWrap='LTR'
+            )
+            seating_label = Paragraph('Recommended Seating Arrangement', seating_label_style)
+            # Compose image cell: label above image (as a mini-table)
+            if img:
+                img.drawWidth = 200
+                img.drawHeight = 80
+                image_col = Table([[seating_label], [img]], colWidths=[2.8*inch], hAlign='RIGHT')
+                image_col.setStyle(TableStyle([
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                    ('TOPPADDING', (0,0), (-1,-1), 0),
+                ]))
+            else:
+                image_col = ''
+            header_row = [[company_title, image_col]]
+            header_table = Table(header_row, colWidths=[4.0*inch, 2.8*inch], hAlign='RIGHT')
+            header_table.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('ALIGN', (0,0), (0,0), 'LEFT'),
+                ('ALIGN', (1,0), (1,0), 'RIGHT'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+            ]))
+            elements.append(header_table)
+            elements.append(Spacer(1, 8))
+            # --- Contact Info Bar ---
+            contact_data = [
+                [
+                    Paragraph(f"<b>Phone:</b> {company_phone}", self.styles['Normal']),
+                    Paragraph(f"<b>Website:</b> {company_website}", self.styles['Normal'])
+                ]
+            ]
+            contact_table = Table(contact_data, colWidths=[2.5*inch, 4.5*inch])
+            contact_table.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#888888')),
+                ('TEXTCOLOR', (0,0), (-1,-1), colors.white),
+                ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0,0), (-1,-1), 11),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                ('TOPPADDING', (0,0), (-1,-1), 6),
+            ]))
+            elements.append(contact_table)
+            elements.append(Spacer(1, 10))
             # Address of the event (from form_data or appointment)
             address = None
             num_adult = num_kid = num_guests = None
@@ -162,6 +223,7 @@ class PDFGenerator:
                 'Side': {'count': 0, 'total': 0},
                 'Protein': {'count': 0, 'total': 0},
             }
+            subtotal = 0.0  # Ensure subtotal is always defined
             # Parse form_data for custom fields
             if hasattr(appointment, 'form_data') and appointment.form_data:
                 forms = appointment.form_data
@@ -250,43 +312,39 @@ class PDFGenerator:
                 location = getattr(appointment, 'location', None)
                 adult_price = self._get_pricing('adult', location)
                 kid_price = self._get_pricing('kid', location)
-                # --- HEADER TABLE ---
+                # --- HEADER TABLE (Address) ---
                 header_data = [
-                    [Paragraph(f"<b>Company Name:</b> {company_name}", self.styles['Normal']),
-                     Paragraph(f"<b>Phone:</b> {company_phone}", self.styles['Normal']),
-                     Paragraph(f"<b>Website:</b> {company_website}", self.styles['Normal'])],
-                    [Paragraph(f"<b>Address of the Event:</b> {address}", self.styles['Normal']), '', '']
+                    [Paragraph(f"<b>Address of the Event:</b> {address}", self.styles['Normal'])]
                 ]
-                header_table = Table(header_data, colWidths=[2.5*inch, 2*inch, 2*inch])
-                header_table.setStyle(TableStyle([
-                    ('SPAN', (0,1), (2,1)),
-                    ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-                    ('BOTTOMPADDING', (0,0), (-1,0), 8),
-                    ('BOTTOMPADDING', (0,1), (-1,1), 8),
-                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                address_table = Table(header_data, colWidths=[7*inch])
+                address_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f2f2f2')),
                     ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
                     ('FONTSIZE', (0,0), (-1,-1), 10),
+                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+                    ('TOPPADDING', (0,0), (-1,-1), 8),
                 ]))
-                elements.append(header_table)
+                elements.append(address_table)
                 elements.append(Spacer(1, 10))
                 
                 # --- EVENT DETAILS ---
                 event_details = [
-                    [Paragraph(f"<b>Recommended Seating Arrangement:</b> {seating}", self.styles['Normal'])],
                     [Paragraph(f"<b>When:</b> {appointment.start_time.strftime('%A, %B %d, %Y at %I:%M %p') if getattr(appointment, 'start_time', None) else 'N/A'}", self.styles['Normal'])],
                     [Paragraph(f"<b>Name:</b> {getattr(appointment, 'client_name', 'N/A')}", self.styles['Normal'])],
                     [Paragraph(f"<b>Phone:</b> {getattr(appointment, 'client_phone', 'N/A')}", self.styles['Normal'])],
-                    [Paragraph(f"<b>Address of the Event:</b> {address}", self.styles['Normal'])],
                     [Paragraph(f"<b>Number of Adult:</b> {num_adult}", self.styles['Normal'])],
                     [Paragraph(f"<b>Number of Kids:</b> {num_kid}", self.styles['Normal'])],
                     [Paragraph(f"<b>How many guests will you have:</b> {num_guests}", self.styles['Normal'])],
                 ]
                 event_table = Table(event_details, colWidths=[7*inch])
                 event_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
-                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                    ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f2f2f2')),
                     ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
                     ('FONTSIZE', (0,0), (-1,-1), 10),
+                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+                    ('TOPPADDING', (0,0), (-1,-1), 6),
                 ]))
                 elements.append(event_table)
                 elements.append(Spacer(1, 10))
@@ -329,7 +387,7 @@ class PDFGenerator:
                         order_details_paragraph = Paragraph(order_details_text, self.styles['Normal'])
                         order_details_table = Table([[order_details_paragraph]], colWidths=[7*inch])
                         order_details_table.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,-1), colors.whitesmoke),
+                            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f2f2f2')),
                             ('ALIGN', (0,0), (-1,-1), 'LEFT'),
                             ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
                             ('FONTSIZE', (0,0), (-1,-1), 9),
@@ -348,10 +406,10 @@ class PDFGenerator:
                     ("Adult", num_adult, "adult"),
                     ("Kid", num_kid, "kid"),
                     ("Noodle / rice", noodle_rice, "noodle_rice"),
-                    ("Gyoza", gyoza, "gyoza"),
-                    ("Edamame", edamame, "edamame"),
-                    ("Filet Mignon", filet_mignon, "fm"),
-                    ("Lobster", lobster_tail, "lobster"),
+                    ("Appetizer: Pork Gyoza", gyoza, "gyoza"),
+                    ("Appetizer: Edamame", edamame, "edamame"),
+                    ("Filet Mignon (Upgraded Protein)", filet_mignon, "fm"),
+                    ("Lobster Tail (Upgraded Protein)", lobster_tail, "lobster"),
                     ("Side", add_protein, "side"),
                 ]
                 # Add static price items
@@ -369,7 +427,7 @@ class PDFGenerator:
                     order_table_data.append([label, str(qty), f"${total}"])
                 order_table = Table(order_table_data, colWidths=[2.8*inch, 2.1*inch, 2.1*inch])
                 order_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.lightblue),
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f2f2f2')),
                     ('ALIGN', (0,0), (-1,-1), 'LEFT'),
                     ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
                     ('FONTSIZE', (0,0), (-1,-1), 10),
@@ -382,14 +440,17 @@ class PDFGenerator:
                 elements.append(Spacer(1, 8))
                 # --- FEES ---
                 fees_data = [
-                    ["Traveling Fee", travel_fee or ""],
-                    ["Deposit", deposit or ""],
+                    [Paragraph("<b>Traveling Fee</b>", self.styles['Normal']), travel_fee or ""],
+                    [Paragraph("<b>Deposit</b>", self.styles['Normal']), deposit or ""],
                 ]
-                if processing_fee is not None:
-                    fees_data.append(["Processing Fee", f"${processing_fee:.2f}"])
+                # Only include processing fee if it is present in the Acuity API response and > 0
+                processing_fee_from_api = getattr(appointment, 'processing_fee', None)
+                if processing_fee_from_api is not None and float(processing_fee_from_api) > 0:
+                    fees_data.append([Paragraph("<b>Processing Fee (4%)</b>", self.styles['Normal']), f"$ {(subtotal + travel_fee - deposit) * 0.04:.2f}"])
                 fees_table = Table(fees_data, colWidths=[2.5*inch, 4.5*inch])
                 fees_table.setStyle(TableStyle([
-                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                    ('ALIGN', (0,0), (0,-1), 'LEFT'),  # Left-align first column
+                    ('ALIGN', (1,0), (1,-1), 'LEFT'),  # Left-align second column
                     ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
                     ('FONTSIZE', (0,0), (-1,-1), 10),
                 ]))
@@ -411,12 +472,16 @@ class PDFGenerator:
                         price = self._get_pricing(category, location) if category else 0.0
                     total = float(qty) * float(price)
                     subtotal += total
-                elements.append(Paragraph(f"<b>Subtotal ($):</b> {subtotal:.2f} (Cash Payment only day of, tip is not included. Other payment method, let us know ASAP.)", self.styles['Normal']))
-                # Show the processing fee as a dollar amount (difference due to multiplier)
-                # processing_fee_amount = subtotal - total1
-                # if processing_fee_amount > 0:
-                    # elements.append(Paragraph(f"<b>Processing Fee ($):</b> {processing_fee_amount:.2f}", self.styles['Normal']))
-                elements.append(Paragraph(f"<b>Total (Deposit deducted) ($):</b> {subtotal:.2f}", self.styles['Normal']))
+                elements.append(Paragraph(f"<b>Subtotal ($):</b> {subtotal:.2f}", self.styles['Normal']))
+                # Calculate Final Total according to formula
+                base_total = subtotal + travel_fee - deposit
+                if processing_fee is not None and processing_fee > 0:
+                    final_total = base_total * 1.04
+                else:
+                    final_total = base_total
+                # Show Final Total and note immediately below
+                elements.append(Paragraph(f"<b>Final Total ($):</b> {final_total:.2f}", self.styles['Normal']))
+                elements.append(Paragraph("<b>Note:</b> Payment must be made in cash on the day of the event. If you need to use a different payment method, please let us know as soon as possible.", self.styles['Normal']))
                 elements.append(Spacer(1, 8))
                 # --- ALLERGIES ---
                 elements.append(Paragraph(f"<b>Any food allergies?</b> {allergies}", self.styles['Normal']))
@@ -433,7 +498,7 @@ class PDFGenerator:
                 ]
                 tip_table = Table(tip_table_data, colWidths=[2*inch, 2*inch, 3*inch])
                 tip_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f2f2f2')),
                     ('ALIGN', (0,0), (-1,-1), 'LEFT'),
                     ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
                     ('FONTSIZE', (0,0), (-1,-1), 10),

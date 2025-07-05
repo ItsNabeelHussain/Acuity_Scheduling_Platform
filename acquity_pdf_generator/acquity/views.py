@@ -63,7 +63,7 @@ def dashboard(request):
         appointments_to_display = all_appointments
 
     # Pagination for appointments
-    paginator = Paginator(appointments_to_display.order_by('-start_time'), 10)
+    paginator = Paginator(appointments_to_display.order_by('start_time'), 10)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
@@ -391,7 +391,7 @@ def dashboard(request):
         # Regular user sees only their assigned calendars and appointments
         user_calendars = UserCalendar.objects.filter(user=request.user, can_view=True)
         calendar_ids = user_calendars.values_list('calendar__id', flat=True)
-        all_appointments = Appointment.objects.filter(calendar__id__in=calendar_ids)
+        all_appointments = Appointment.objects.filter(calendar__id__in=calendar_ids).order_by('-start_time')
 
     # The total number of records accessible by the user, before any search filters.
     total_records = all_appointments.count()
@@ -408,7 +408,7 @@ def dashboard(request):
         appointments_to_display = all_appointments
 
     # Pagination for appointments
-    paginator = Paginator(appointments_to_display.order_by('-start_time'), 10)
+    paginator = Paginator(appointments_to_display.order_by('start_time'), 10)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
@@ -452,14 +452,14 @@ def calendar_appointments(request, calendar_id):
     if start_date:
         try:
             start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-            appointments = appointments.filter(start_time__date__gte=start_date)
+            appointments = appointments.filter(start_time__date__gte=start_date).order_by('-start_time')
         except ValueError:
             pass
     
     if end_date:
         try:
             end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-            appointments = appointments.filter(start_time__date__lte=end_date)
+            appointments = appointments.filter(start_time__date__lte=end_date).order_by('-start_time')
         except ValueError:
             pass
     

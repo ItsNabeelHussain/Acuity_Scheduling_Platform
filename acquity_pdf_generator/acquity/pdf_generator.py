@@ -495,7 +495,7 @@ class PDFGenerator:
                     final_total = base_total * (1 + processing_fee_percent)
                 else:
                     final_total = base_total
-                elements.append(Paragraph(f"<b>Final Total ($):</b> {final_total:.2f}", ParagraphStyle('Normal', fontSize=9)))
+                elements.append(Paragraph(f"<b>Total ($):</b> {final_total:.2f}", ParagraphStyle('Normal', fontSize=9)))
                 elements.append(Paragraph("<b>Note:</b> Payment must be made in cash on the day of the event. If you need to use a different payment method, please let us know as soon as possible.", ParagraphStyle('Normal', fontSize=8)))
                 elements.append(Spacer(1, 4))
                 # --- ALLERGIES ---

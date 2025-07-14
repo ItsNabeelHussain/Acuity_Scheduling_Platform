@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Assign Calendars to Users</h2>
+<form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="assign">
+    <div>
+        <label for="user_id">User:</label>
+        <select name="user_id" id="user_id" required>
+            <option value="">Select user</option>
+            {% for user in users %}
+                <option value="{{ user.id }}">{{ user.username }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <label for="calendar_id">Calendar:</label>
+        <select name="calendar_id" id="calendar_id" required>
+            <option value="">Select calendar</option>
+            {% for calendar in calendars %}
+                <option value="{{ calendar.id }}">{{ calendar.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button type="submit">Assign Calendar</button>
+</form>
+
+<h3>Current Assignments</h3>
+<table>
+    <thead>
+        <tr>
+            <th>User</th>
+            <th>Calendar</th>
+            <th>Assigned At</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for assignment in assignments %}
+        <tr>
+            <td>{{ assignment.user.username }}</td>
+            <td>{{ assignment.calendar.name }}</td>
+            <td>{{ assignment.assigned_at }}</td>
+            <td>
+                <form method="post" style="display:inline;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="unassign">
+                    <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
+                    <button type="submit">Unassign</button>
+                </form>
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4">No assignments found.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %} 

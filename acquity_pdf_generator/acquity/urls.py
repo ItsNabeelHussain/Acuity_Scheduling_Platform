@@ -12,4 +12,5 @@ urlpatterns = [
     path('appointment/<int:appointment_id>/', views.appointment_detail, name='appointment_detail'),
     path('appointment/<int:appointment_id>/pdf/', views.download_pdf, name='download_pdf'),
     path('sync/', views.sync_data, name='sync_data'),
+    path('admin/assign-calendars/', views.assign_calendars, name='assign_calendars'),
 ] 

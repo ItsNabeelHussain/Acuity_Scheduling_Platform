@@ -97,25 +97,15 @@ class PDFGenerationLog(models.Model):
 
 # PricingSetting model for admin-editable pricing
 class PricingSetting(models.Model):
-    CATEGORY_CHOICES = [
-        ("adult", "Adult"),
-        ("kid", "Kid"),
-        ("noodle_rice", "Noodle / Rice"),
-        ("gyoza", "Gyoza"),
-        ("edamame", "Edamame"),
-        ("fm", "Filet Mignon"),
-        ("lobster", "Lobster"),
-        ("side", "Side"),
-        ("protein", "Protein"),
-    ]
-    category = models.CharField(max_length=32, choices=CATEGORY_CHOICES)
+    category = models.CharField(max_length=100)
     price = models.DecimalField(max_digits=10, decimal_places=2)
-    location = models.CharField(max_length=128, blank=True, help_text="Optional: set for location-based pricing.")
+    currency = models.CharField(max_length=8, default='USD')
+    calendar = models.ForeignKey('Calendar', on_delete=models.CASCADE, null=True, blank=True)
 
     class Meta:
-        unique_together = ("category", "location")
+        unique_together = (('category', 'currency', 'calendar'),)
         verbose_name = "Pricing Setting"
         verbose_name_plural = "Pricing Settings"
 
     def __str__(self):
-        return f"{self.get_category_display()} - {self.location or 'Default'}: ${self.price}"
+        return f"{self.category} - {self.price} {self.currency}"

@@ -160,8 +160,8 @@ class PDFGenerator:
         from reportlab.lib.pagesizes import letter
         from reportlab.platypus import SimpleDocTemplate
         from PyPDF2 import PdfReader
-        # Try font sizes from 10 down to 6
-        for font_size in range(10, 5, -1):
+        # Try font sizes from 12 down to 8
+        for font_size in range(12, 7, -1):
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=18)
             elements = self._build_elements_dynamic(appointment, font_size=font_size, spacing=max(font_size-2, 2))
@@ -179,7 +179,7 @@ class PDFGenerator:
         # If nothing fits, return the smallest version
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=18)
-        elements = self._build_elements_dynamic(appointment, font_size=6, spacing=2)
+        elements = self._build_elements_dynamic(appointment, font_size=8, spacing=2)
         doc.build(elements)
         pdf_content = buffer.getvalue()
         buffer.close()
@@ -225,7 +225,7 @@ class PDFGenerator:
         else:
             image_col = ''
         header_row = [[company_title, image_col]]
-        header_table = Table(header_row, colWidths=[4.0*inch, 2.8*inch], hAlign='RIGHT')
+        header_table = Table(header_row, colWidths=[4.0*inch, 2.8*inch], hAlign='LEFT')
         header_table.setStyle(TableStyle([
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
             ('ALIGN', (0,0), (0,0), 'LEFT'),
@@ -243,7 +243,7 @@ class PDFGenerator:
             ])
         if note_text:
             note_box = Table(
-                [[Paragraph(f"<b>Note / Allergy / Restrictions:</b> {note_text}", ParagraphStyle('Normal', font_size=font_size, leading=font_size+2))]],
+                [[Paragraph(f"<b>Note / Allergy / Restrictions:</b> {note_text}", ParagraphStyle('Normal', fontSize=font_size, leading=font_size+2))]],
                 colWidths=[3.8*inch], hAlign='LEFT'
             )
             note_box.setStyle(TableStyle([
@@ -255,7 +255,7 @@ class PDFGenerator:
                 ('BOTTOMPADDING', (0,0), (-1,-1), spacing//2),
             ]))
             elements.append(note_box)
-            elements.append(Spacer(1, spacing))
+            elements.append(Spacer(1, spacing*2))
         # --- CONTACT INFO BAR ---
         contact_style = ParagraphStyle('Contact', fontSize=font_size, fontName='Helvetica-Bold', textColor=colors.black)
         contact_data = [
@@ -450,6 +450,14 @@ class PDFGenerator:
                     elements.append(Spacer(1, 6))
             
             # --- ORDER BREAKDOWN ---
+            # Fetch currency from PricingSetting for this calendar (or default USD)
+            currency = 'USD'
+            if hasattr(appointment, 'calendar') and appointment.calendar:
+                from .models import PricingSetting
+                ps = PricingSetting.objects.filter(calendar=appointment.calendar).first()
+                if ps:
+                    currency = ps.currency
+            currency_symbol = self._get_currency_symbol(currency)
             # Map form field names to PricingSetting categories and display names
             item_fields = [
                 ("Adult", num_adult, "adult"),
@@ -461,34 +469,37 @@ class PDFGenerator:
                 ("Lobster Tail (Upgraded Protein)", lobster_tail, "lobster"),
                 ("Side", add_protein, "side"),
             ]
-            # Add static price items
             item_fields.append(("Additional Premium protein ($15)", add_premium_protein, None))
             item_fields.append(("Additional Protein ($10)", add_protein, None))
-            order_table_data = [["Item", "Quantity", "Total ($)"]]
+            # Add Unit Price column to order_table_data
+            order_table_data = [["Item", "Quantity", "Unit Price", f"Total ({currency_symbol})"]]
             for label, qty, category in item_fields:
                 if label == "Additional Premium protein ($15)":
                     price = 15.0
                 elif label == "Additional Protein ($10)":
                     price = 10.0
                 else:
-                    price = self._get_pricing(category, location) if category else 0.0
+                    price = self._get_pricing(category, getattr(appointment, 'calendar', None)) if category else 0.0
                 total = float(qty) * float(price)
-                order_table_data.append([label, str(qty), f"${total}"])
-            order_table = Table(order_table_data, colWidths=[2.8*inch, 2.1*inch, 2.1*inch])
+                order_table_data.append([
+                    label,
+                    str(qty),
+                    f"{currency_symbol}{price:.2f}",
+                    f"{currency_symbol}{total:.2f}"
+                ])
+            order_table = Table(order_table_data, colWidths=[2.5*inch, 1*inch, 1.2*inch, 1.3*inch], hAlign='LEFT')
             order_table.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f2f2f2')),
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'),
                 ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
-                ('FONTSIZE', (0,0), (-1,-1), 9),
+                ('FONTSIZE', (0,0), (-1,-1), font_size),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                ('TOPPADDING', (0,0), (-1,-1), 2),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-                ('LEFTPADDING', (0,0), (-1,-1), 2),
-                ('RIGHTPADDING', (0,0), (-1,-1), 2),
+                ('TOPPADDING', (0,0), (-1,-1), spacing//2),
+                ('BOTTOMPADDING', (0,0), (-1,-1), spacing//2),
             ]))
             elements.append(order_table)
-            elements.append(Spacer(1, 6))
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, spacing))
+            # Use currency_symbol everywhere a price is shown (e.g., Total, tips, fees, etc.)
             # --- FEES ---
             # Ensure processing_fee_percent is always defined
             processing_fee_percent = 0.0
@@ -503,7 +514,7 @@ class PDFGenerator:
                 elif label == "Additional Protein ($10)":
                     price = 10.0
                 else:
-                    price = self._get_pricing(category, location) if category else 0.0
+                    price = self._get_pricing(category, getattr(appointment, 'calendar', None)) if category else 0.0
                 total = float(qty) * float(price)
                 subtotal += total
             base_total = subtotal + travel_fee - deposit
@@ -532,23 +543,18 @@ class PDFGenerator:
                 ])
             # --- FEES/TOTAL + NOTE, SIDE BY SIDE, BORDERLESS ---
             fees_labels = [
-                Paragraph("<b>Traveling Fee</b>", self.styles['Normal']),
-                Paragraph("<b>Deposit</b>", self.styles['Normal']),
-                Paragraph("<b>Processing Fee (If Applicable)</b>", self.styles['Normal']),
-                Paragraph(f"<b>Total ($):</b> {final_total:.2f}", self.styles['Normal']),
+                Paragraph("<b>Traveling Fee</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0)),
+                Paragraph("<b>Deposit</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0)),
+                Paragraph('<font size="8" color="#555555">The deposit has already been deducted from the total shown on this invoice.</font>', ParagraphStyle('Normal', fontSize=max(font_size-2, 8), textColor=colors.HexColor('#555555'), leftIndent=12, alignment=0)),
+                Paragraph("<b>Processing Fee (If Applicable)</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0)),
+                Paragraph(f"<b>Total ({currency_symbol}):</b> {final_total:.2f}", ParagraphStyle('Normal', fontSize=font_size, alignment=0)),
             ]
+            # Ensure fees_labels_table and fees_row_table are left-aligned
             fees_labels_table = Table([[label] for label in fees_labels], colWidths=[2.5*inch], hAlign='LEFT')
-            fees_labels_table.setStyle(TableStyle([
-                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-                ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
-                ('FONTSIZE', (0,0), (-1,-1), 10),
-                ('TOPPADDING', (0,0), (-1,-1), 2),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-            ]))
             fees_note_paragraph = Paragraph(
                 "Each meal includes vegetables, fried rice, salad, and sake as part of the service.<br/>"
                 "Please make sure that tables, chairs, plates, and utensils are fully set up before the chef arrives so we can begin cooking on time and keep everything running smoothly.",
-                ParagraphStyle('FeesNoteStyle', fontSize=font_size-1, leading=font_size+1, wordWrap='CJK', fontName='Helvetica-Bold')
+                ParagraphStyle('FeesNoteStyle', fontSize=font_size-1, leading=font_size+1, wordWrap='CJK', fontName='Helvetica-Bold', alignment=0)
             )
             fees_row_table = Table(
                 [[fees_labels_table, fees_note_paragraph]],
@@ -557,7 +563,7 @@ class PDFGenerator:
             elements.append(fees_row_table)
             elements.append(Spacer(1, 6))
             # --- ALLERGIES ---
-            elements.append(Paragraph(f"<b>Any food allergies?</b> {allergies}", ParagraphStyle('Normal', fontSize=font_size-2, spaceBefore=2, spaceAfter=2)))
+            # elements.append(Paragraph(f"<b>Any food allergies?</b> {allergies}", ParagraphStyle('Normal', fontSize=font_size-2, spaceBefore=2, spaceAfter=2)))
             elements.append(Spacer(1, 6))
             # --- TIP TABLE ---
             # Define note_style before use
@@ -566,7 +572,7 @@ class PDFGenerator:
             tip_25 = round(tip_base * 0.25, 2)
             tip_30 = round(tip_base * 0.30, 2)
             tip_table_data = [
-                ["Tip :", "", "Final Total with Gratuity"],
+                ["Tip :", "", "Total with Gratuity"],
                 ["20% = $", f"{tip_20:.2f}", f"Total: $ {final_total + tip_20:.2f}"],
                 ["25% = $", f"{tip_25:.2f}", f"Total: $ {final_total + tip_25:.2f}"],
                 ["30% = $", f"{tip_30:.2f}", f"Total: $ {final_total + tip_30:.2f}"],
@@ -582,8 +588,8 @@ class PDFGenerator:
                 ('TOPPADDING', (0,0), (-1,-1), 2),
                 ('BOTTOMPADDING', (0,0), (-1,-1), 2),
             ]))
-            note_style = ParagraphStyle('NoteStyle', fontSize=font_size-1, leading=font_size+1, wordWrap='CJK', fontName='Helvetica-Bold')
-            tip_note_paragraph = Paragraph("Note: Payment must be made in cash on the day of the event. If you need to use a different payment method, please let us know as soon as possible.", note_style)
+            note_style = ParagraphStyle('NoteStyle', fontSize=font_size-1, leading=font_size+1, wordWrap='CJK', fontName='Helvetica-Bold', alignment=0)
+            tip_note_paragraph = Paragraph("Note: Cash payment is due on the day of the event.Other payment methods must be arranged and completed 2–3 days in advance.", note_style)
             tip_row_table = Table(
                 [[tip_table, tip_note_paragraph]],
                 colWidths=[4.0*inch, 2.5*inch], hAlign='LEFT'
@@ -596,12 +602,16 @@ class PDFGenerator:
             elements.append(Spacer(1, 6))
             # elements.append(Paragraph("Thank you for having us. Hope you enjoyed it!", ParagraphStyle('Normal', fontSize=compact_font_size+1, alignment=0, spaceBefore=4, spaceAfter=2)))
             # elements.append(Paragraph("Follow/tag us on instagram: @mobilehibachi_4u", ParagraphStyle('Normal', fontSize=compact_font_size, alignment=0, spaceBefore=2, spaceAfter=2)))
-            elements.append(Paragraph("<b>Our website:</b> https://www.mobilehibachi4u.com/", ParagraphStyle('Normal', fontSize=font_size-2, alignment=0, spaceBefore=2, spaceAfter=2)))
+            elements.append(Paragraph('<b>Our website:</b> <font color="blue">https://www.mobilehibachi4u.com/</font>', ParagraphStyle('Normal', fontSize=font_size, alignment=0, spaceBefore=2, spaceAfter=2)))
             elements.append(Paragraph("<b>Weather:</b> Please ensure there is some type of covering for the chef to cook under in case of rain. We can cook under tents, patios, garages, or indoors — whichever works best for your space.", ParagraphStyle('Normal', fontSize=font_size-2, alignment=0, spaceBefore=2, spaceAfter=2)))
             elements.append(Paragraph("<b>If you have any questions about this invoice, feel free to call us at 240-689-8383 or email chef@mobilehibachi4u.com.</b>", ParagraphStyle('Normal', fontSize=font_size-2, alignment=0, spaceBefore=2, spaceAfter=2)))
             # Build PDF
             # doc.build(elements) # This line is removed as per the edit hint.
             return elements # Return the list of elements instead of building the PDF.
+
+    def _get_currency_symbol(self, currency_code):
+        symbols = {'USD': '$', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'INR': '₹', 'CAD': '$', 'AUD': '$'}
+        return symbols.get(currency_code.upper(), currency_code)
 
 
 

@@ -384,7 +384,7 @@ class PDFGenerator:
             header_data = [
                 [Paragraph(f"<b>Address of the Event:</b> {address}", self.styles['Normal'])]
             ]
-            address_table = Table(header_data, colWidths=[7*inch])
+            address_table = Table(header_data, colWidths=[7*inch], hAlign='LEFT')
             address_table.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f2f2f2')),
                 ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
@@ -402,7 +402,7 @@ class PDFGenerator:
                 [Paragraph(f"<b>Name:</b> {getattr(appointment, 'client_name', 'N/A')}", self.styles['Normal'])],
                 [Paragraph(f"<b>Phone:</b> {getattr(appointment, 'client_phone', 'N/A')}", self.styles['Normal'])],
             ]
-            event_table = Table(event_details, colWidths=[7*inch])
+            event_table = Table(event_details, colWidths=[7*inch], hAlign='LEFT')
             event_table.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f2f2f2')),
                 ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
@@ -434,7 +434,7 @@ class PDFGenerator:
                 if order_details_content:
                     order_details_text = '<br/><br/>'.join(order_details_content)
                     order_details_paragraph = Paragraph(order_details_text, self.styles['Normal'])
-                    order_details_table = Table([[order_details_paragraph]], colWidths=[7*inch])
+                    order_details_table = Table([[order_details_paragraph]], colWidths=[7*inch], hAlign='LEFT')
                     order_details_table.setStyle(TableStyle([
                         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f2f2f2')),
                         ('ALIGN', (0,0), (-1,-1), 'LEFT'),
@@ -487,7 +487,9 @@ class PDFGenerator:
                     f"{currency_symbol}{price:.2f}",
                     f"{currency_symbol}{total:.2f}"
                 ])
-            order_table = Table(order_table_data, colWidths=[2.5*inch, 1*inch, 1.2*inch, 1.3*inch], hAlign='LEFT')
+            col_width = 2.5*inch  # Consistent left column width for all tables
+            # Order Breakdown Table
+            order_table = Table(order_table_data, colWidths=[col_width, 1*inch, 1.2*inch, 1.3*inch], hAlign='LEFT')
             order_table.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f2f2f2')),
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'),
@@ -496,6 +498,8 @@ class PDFGenerator:
                 ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
                 ('TOPPADDING', (0,0), (-1,-1), spacing//2),
                 ('BOTTOMPADDING', (0,0), (-1,-1), spacing//2),
+                ('LEFTPADDING', (0,0), (-1,-1), 8),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
             ]))
             elements.append(order_table)
             elements.append(Spacer(1, spacing))
@@ -543,23 +547,39 @@ class PDFGenerator:
                 ])
             # --- FEES/TOTAL + NOTE, SIDE BY SIDE, BORDERLESS ---
             fees_labels = [
-                Paragraph("<b>Traveling Fee</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0)),
-                Paragraph("<b>Deposit</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0)),
-                Paragraph('<font size="8" color="#555555">The deposit has already been deducted from the total shown on this invoice.</font>', ParagraphStyle('Normal', fontSize=max(font_size-2, 8), textColor=colors.HexColor('#555555'), leftIndent=12, alignment=0)),
-                Paragraph("<b>Processing Fee (If Applicable)</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0)),
-                Paragraph(f"<b>Total ({currency_symbol}):</b> {final_total:.2f}", ParagraphStyle('Normal', fontSize=font_size, alignment=0)),
+                Paragraph("<b>Traveling Fee</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)),
+                Paragraph("<b>Deposit</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)),
+                Paragraph('<font size="8" color="#555555">The deposit has already been deducted from the total shown on this invoice.</font>', ParagraphStyle('Normal', fontSize=max(font_size-2, 8), textColor=colors.HexColor('#555555'), leftIndent=0, alignment=0)),
+                Paragraph("<b>Processing Fee (If Applicable)</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)),
+                Paragraph(f"<b>Total ({currency_symbol}):</b> {final_total:.2f}", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)),
             ]
-            # Ensure fees_labels_table and fees_row_table are left-aligned
-            fees_labels_table = Table([[label] for label in fees_labels], colWidths=[2.5*inch], hAlign='LEFT')
+            # Define the table for the fee labels and set left alignment
+            fees_labels_table = Table([[label] for label in fees_labels], colWidths=[col_width], hAlign='LEFT')
+            fees_labels_table.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ]))
+            # If these are used in a Table, ensure the TableStyle aligns all columns left:
+            # Example:
+            # fees_table.setStyle(TableStyle([
+            #     ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            #     ...
+            # ]))
             fees_note_paragraph = Paragraph(
-                "Each meal includes vegetables, fried rice, salad, and sake as part of the service.<br/>"
-                "Please make sure that tables, chairs, plates, and utensils are fully set up before the chef arrives so we can begin cooking on time and keep everything running smoothly.",
+                "1. Each meal includes vegetables, fried rice, salad, and sake as part of the service.<br/>"
+                "Please make sure that tables, chairs, plates, and utensils are fully set up before the chef arrives so we can begin cooking on time and keep everything running smoothly. We don't provide any plates or to go boxes of any sort.",
                 ParagraphStyle('FeesNoteStyle', fontSize=font_size-1, leading=font_size+1, wordWrap='CJK', fontName='Helvetica-Bold', alignment=0)
             )
             fees_row_table = Table(
                 [[fees_labels_table, fees_note_paragraph]],
                 colWidths=[4.0*inch, 2.5*inch], hAlign='LEFT'
             )
+            fees_row_table.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ]))
             elements.append(fees_row_table)
             elements.append(Spacer(1, 6))
             # --- ALLERGIES ---
@@ -594,6 +614,9 @@ class PDFGenerator:
                 [[tip_table, tip_note_paragraph]],
                 colWidths=[4.0*inch, 2.5*inch], hAlign='LEFT'
             )
+            tip_row_table.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ]))
             elements.append(tip_row_table)
             elements.append(Spacer(1, 6))
             # --- FOOTER ---

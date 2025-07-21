@@ -139,14 +139,15 @@ class PDFGenerator:
             buffer.close()
             raise e
 
-    def _get_pricing(self, category, location=None):
+    def _get_pricing(self, category, calendar=None):
         try:
-            if location:
-                setting = PricingSetting.objects.filter(category=category, location=location).first()
+            # Try to get price for the specific calendar
+            if calendar:
+                setting = PricingSetting.objects.filter(category=category, calendar=calendar).first()
                 if setting:
                     return float(setting.price)
-            # fallback to default (no location)
-            setting = PricingSetting.objects.filter(category=category, location="").first()
+            # Fallback to global/default (calendar=None)
+            setting = PricingSetting.objects.filter(category=category, calendar=None).first()
             if setting:
                 return float(setting.price)
         except Exception:

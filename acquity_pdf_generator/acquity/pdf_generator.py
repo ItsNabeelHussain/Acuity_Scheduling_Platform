@@ -324,8 +324,24 @@ class PDFGenerator:
             lobster_tail = get_form_field(forms, ['lobster tail (upgraded protein)'])
             add_premium_protein = get_form_field(forms, ['additional premium protein ($15)'])
             add_protein = get_form_field(forms, ['additional protein ($10)'])
-            travel_fee = get_form_field(forms, ['travel fee'])
-            deposit = get_form_field(forms, ['deposit (deducted from total)'])
+            travel_fee = get_form_field(forms, [
+                'travel fee', 'Travel fee', 'Travel Fee', 'TRAVEL FEE',
+                'travel_fee', 'Travel_Fee', 'Travel_Fee', 'TRAVEL_FEE'
+            ])
+            deposit = get_form_field(forms, [
+                'deposit', 'Deposit', 'deposit (deducted from total)', 'Deposit (Deducted from Total)', 'DEPOSIT',
+                'deposit_deducted_from_total', 'Deposit_Deducted_From_Total', 'DEPOSIT_DEDUCTED_FROM_TOTAL'
+            ])
+            print('Travel fee from form:', travel_fee)
+            print('Deposit from form:', deposit)
+            try:
+                travel_fee = float(travel_fee)
+            except (TypeError, ValueError):
+                travel_fee = 0.0
+            try:
+                deposit = float(deposit)
+            except (TypeError, ValueError):
+                deposit = 0.0
             processing_fee = get_form_field(forms, ['processing fee (if any)'])
             processing_fee = float(processing_fee) if processing_fee and str(processing_fee).replace('.','',1).isdigit() else 0.0
             # Convert to int/float where appropriate
@@ -338,8 +354,6 @@ class PDFGenerator:
             lobster_tail = int(lobster_tail) if lobster_tail and str(lobster_tail).strip().isdigit() else 0
             add_premium_protein = int(add_premium_protein) if add_premium_protein and str(add_premium_protein).strip().isdigit() else 0
             add_protein = int(add_protein) if add_protein and str(add_protein).strip().isdigit() else 0
-            travel_fee = float(travel_fee) if travel_fee and str(travel_fee).replace('.','',1).isdigit() else 0.0
-            deposit = float(deposit) if deposit and str(deposit).replace('.','',1).isdigit() else 0.0
             num_guests = num_adult + num_kid
             if not address:
                 address = getattr(appointment, 'notes', '')
@@ -522,18 +536,22 @@ class PDFGenerator:
                     price = self._get_pricing(category, getattr(appointment, 'calendar', None)) if category else 0.0
                 total = float(qty) * float(price)
                 subtotal += total
-            base_total = subtotal + travel_fee - deposit
-            if processing_fee_percent > 0:
-                final_total = base_total * (1 + processing_fee_percent)
-            else:
-                final_total = base_total
-            fees_data = [
-                [Paragraph("<b>Traveling Fee</b>", self.styles['Normal']), travel_fee or ""],
-                [Paragraph("<b>Deposit</b>", self.styles['Normal']), deposit or ""],
-            ]
-            # Only include processing fee if it is present in the Acuity API response and > 0
+            # Calculate Total (sum of all item totals)
+            total = 0.0
+            for label, qty, category in item_fields:
+                if label == "Additional Premium protein ($15)":
+                    price = 15.0
+                elif label == "Additional Protein ($10)":
+                    price = 10.0
+                else:
+                    price = self._get_pricing(category, getattr(appointment, 'calendar', None)) if category else 0.0
+                item_total = float(qty) * float(price)
+                total += item_total
+            # Travel fee and deposit from form data, ensure float
+            travel_fee = float(travel_fee) if travel_fee and str(travel_fee).replace('.','',1).isdigit() else 0.0
+            deposit = float(deposit) if deposit and str(deposit).replace('.','',1).isdigit() else 0.0
+            # Processing fee percent
             processing_fee_from_api = getattr(appointment, 'processing_fee', None)
-            processing_fee_display = None
             processing_fee_percent = 0.0
             if processing_fee_from_api is not None and float(processing_fee_from_api) > 0:
                 pf = float(processing_fee_from_api)
@@ -541,39 +559,43 @@ class PDFGenerator:
                     processing_fee_percent = pf / 100.0
                 else:
                     processing_fee_percent = pf
-                processing_fee_display = (subtotal + travel_fee - deposit) * processing_fee_percent
-                fees_data.append([
-                    Paragraph("<b>Processing Fee (If Applicable)</b>", self.styles['Normal']),
-                    f"$ {processing_fee_display:.2f}"
-                ])
+            # Final Total calculation
+            base_total = total + travel_fee - deposit
+            if processing_fee_percent > 0:
+                final_total = base_total * (1 + processing_fee_percent)
+            else:
+                final_total = base_total
             # --- FEES/TOTAL + NOTE, SIDE BY SIDE, BORDERLESS ---
-            fees_labels = [
-                Paragraph("<b>Traveling Fee</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)),
-                Paragraph("<b>Deposit</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)),
-                Paragraph('<font size="8" color="#555555">The deposit has already been deducted from the total shown on this invoice.</font>', ParagraphStyle('Normal', fontSize=max(font_size-2, 8), textColor=colors.HexColor('#555555'), leftIndent=0, alignment=0)),
-                Paragraph("<b>Processing Fee (If Applicable)</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)),
-                Paragraph(f"<b>Total ({currency_symbol}):</b> {final_total:.2f}", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)),
+            fees_data = [
+                [Paragraph("<b>Traveling Fee</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)), f"{currency_symbol}{travel_fee:.2f}"],
+                [Paragraph("<b>Deposit</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)), f"{currency_symbol}{deposit:.2f}"],
             ]
-            # Define the table for the fee labels and set left alignment
-            fees_labels_table = Table([[label] for label in fees_labels], colWidths=[col_width], hAlign='LEFT')
-            fees_labels_table.setStyle(TableStyle([
+            if processing_fee_percent > 0:
+                processing_fee_display = (total + travel_fee - deposit) * processing_fee_percent
+                fees_data.append([
+                    Paragraph("<b>Processing Fee (If Applicable)</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)),
+                    f"{currency_symbol}{processing_fee_display:.2f}"
+                ])
+            fees_data.append([
+                Paragraph(f"<b>Total ({currency_symbol}):</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)),
+                f"{currency_symbol}{total:.2f}"
+            ])
+            fees_table = Table(fees_data, colWidths=[2.5*inch, 1.5*inch], hAlign='LEFT')
+            fees_table.setStyle(TableStyle([
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-                ('LEFTPADDING', (0,0), (-1,-1), 0),
-                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('LEFTPADDING', (0,0), (-1,-1), 4),
+                ('RIGHTPADDING', (0,0), (-1,-1), 4),
+                ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
+                ('FONTSIZE', (0,0), (-1,-1), font_size),
             ]))
-            # If these are used in a Table, ensure the TableStyle aligns all columns left:
-            # Example:
-            # fees_table.setStyle(TableStyle([
-            #     ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            #     ...
-            # ]))
+            # Restore the side-by-side layout with the note or right-side text
             fees_note_paragraph = Paragraph(
                 "1. Each meal includes vegetables, fried rice, salad, and sake as part of the service.<br/>"
                 "Please make sure that tables, chairs, plates, and utensils are fully set up before the chef arrives so we can begin cooking on time and keep everything running smoothly. We don't provide any plates or to go boxes of any sort.",
                 ParagraphStyle('FeesNoteStyle', fontSize=font_size-1, leading=font_size+1, wordWrap='CJK', fontName='Helvetica-Bold', alignment=0)
             )
             fees_row_table = Table(
-                [[fees_labels_table, fees_note_paragraph]],
+                [[fees_table, fees_note_paragraph]],
                 colWidths=[4.0*inch, 2.5*inch], hAlign='LEFT'
             )
             fees_row_table.setStyle(TableStyle([
@@ -588,7 +610,7 @@ class PDFGenerator:
             elements.append(Spacer(1, 6))
             # --- TIP TABLE ---
             # Define note_style before use
-            tip_base = subtotal + travel_fee
+            tip_base = total + travel_fee
             tip_20 = round(tip_base * 0.20, 2)
             tip_25 = round(tip_base * 0.25, 2)
             tip_30 = round(tip_base * 0.30, 2)

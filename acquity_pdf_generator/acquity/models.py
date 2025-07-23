@@ -97,7 +97,19 @@ class PDFGenerationLog(models.Model):
 
 # PricingSetting model for admin-editable pricing
 class PricingSetting(models.Model):
-    category = models.CharField(max_length=100)
+    CATEGORY_CHOICES = [
+        ('adult', 'Adult'),
+        ('kid', 'Kid'),
+        ('noodle_rice', 'Noodle / Rice'),
+        ('gyoza', 'Appetizer: Pork Gyoza'),
+        ('edamame', 'Appetizer: Edamame'),
+        ('fm', 'Filet Mignon (Upgraded Protein)'),
+        ('lobster', 'Lobster Tail (Upgraded Protein)'),
+        ('side', 'Side'),
+        ('additional_premium_protein', 'Additional Premium protein ($15)'),
+        ('additional_protein', 'Additional Protein ($10)'),
+    ]
+    category = models.CharField(max_length=100, choices=CATEGORY_CHOICES)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=8, default='USD')
     calendar = models.ForeignKey('Calendar', on_delete=models.CASCADE, null=True, blank=True)

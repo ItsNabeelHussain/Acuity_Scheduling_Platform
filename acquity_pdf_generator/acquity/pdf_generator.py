@@ -235,28 +235,29 @@ class PDFGenerator:
             ('TOPPADDING', (0,0), (-1,-1), 0),
         ]))
         elements.append(header_table)
-        elements.append(Spacer(1, spacing))
+        elements.append(Spacer(1, 1))
         # --- NOTE / ALLERGY / RESTRICTIONS BOX ---
         note_text = getattr(appointment, 'note_allergy_restrictions', None)
         if not note_text:
             note_text = get_form_field(getattr(appointment, 'form_data', []), [
                 'Note / Allergy / Restrictions', 'Allergy', 'Restrictions', 'Notes'
             ])
-        if note_text:
-            note_box = Table(
-                [[Paragraph(f"<b>Note / Allergy / Restrictions:</b> {note_text}", ParagraphStyle('Normal', fontSize=font_size, leading=font_size+2))]],
-                colWidths=[3.8*inch], hAlign='LEFT'
-            )
-            note_box.setStyle(TableStyle([
+            if note_text:
+                note_box = Table(
+                    [[Paragraph(f"<b>Note / Allergy / Restrictions:</b> {note_text}", ParagraphStyle('Normal', fontSize=font_size, leading=font_size+2))]],
+                    colWidths=[3.8*inch], hAlign='LEFT'
+                )
+                note_box.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f9f9c5')),
                 ('BOX', (0,0), (-1,-1), 1, colors.black),
                 ('LEFTPADDING', (0,0), (-1,-1), spacing),
                 ('RIGHTPADDING', (0,0), (-1,-1), spacing),
-                ('TOPPADDING', (0,0), (-1,-1), spacing//2),
-                ('BOTTOMPADDING', (0,0), (-1,-1), spacing//2),
+                ('TOPPADDING', (0,0), (-1,-1), spacing*8),
+                ('BOTTOMPADDING', (0,0), (-1,-1), spacing*8),
             ]))
-            elements.append(note_box)
-            elements.append(Spacer(1, spacing*2))
+                elements.append(note_box)
+                elements.append(Spacer(1, spacing*2))
+
         # --- CONTACT INFO BAR ---
         contact_style = ParagraphStyle('Contact', fontSize=font_size, fontName='Helvetica-Bold', textColor=colors.black)
         contact_data = [
@@ -273,7 +274,7 @@ class PDFGenerator:
             ('TOPPADDING', (0,0), (-1,-1), spacing//2),
         ]))
         elements.append(contact_table)
-        elements.append(Spacer(1, spacing))
+        elements.append(Spacer(1, spacing//2))
         # Address of the event (from form_data or appointment)
         address = None
         num_adult = num_kid = num_guests = None
@@ -484,17 +485,12 @@ class PDFGenerator:
                 ("Lobster Tail (Upgraded Protein)", lobster_tail, "lobster"),
                 ("Side", add_protein, "side"),
             ]
-            item_fields.append(("Additional Premium protein ($15)", add_premium_protein, None))
-            item_fields.append(("Additional Protein ($10)", add_protein, None))
+            item_fields.append(("Additional Premium protein ($15)", add_premium_protein, "additional_premium_protein"))
+            item_fields.append(("Additional Protein ($10)", add_protein, "additional_protein"))
             # Add Unit Price column to order_table_data
             order_table_data = [["Item", "Quantity", "Unit Price", f"Total ({currency_symbol})"]]
             for label, qty, category in item_fields:
-                if label == "Additional Premium protein ($15)":
-                    price = 15.0
-                elif label == "Additional Protein ($10)":
-                    price = 10.0
-                else:
-                    price = self._get_pricing(category, getattr(appointment, 'calendar', None)) if category else 0.0
+                price = self._get_pricing(category, getattr(appointment, 'calendar', None)) if category else 0.0
                 total = float(qty) * float(price)
                 order_table_data.append([
                     label,
@@ -517,7 +513,7 @@ class PDFGenerator:
                 ('RIGHTPADDING', (0,0), (-1,-1), 0),
             ]))
             elements.append(order_table)
-            elements.append(Spacer(1, spacing))
+            elements.append(Spacer(1, spacing//2))
             # Use currency_symbol everywhere a price is shown (e.g., Total, tips, fees, etc.)
             # --- FEES ---
             # Ensure processing_fee_percent is always defined
@@ -528,23 +524,13 @@ class PDFGenerator:
             # Ensure subtotal and final_total are calculated before use
             subtotal = 0.0
             for label, qty, category in item_fields:
-                if label == "Additional Premium protein ($15)":
-                    price = 15.0
-                elif label == "Additional Protein ($10)":
-                    price = 10.0
-                else:
-                    price = self._get_pricing(category, getattr(appointment, 'calendar', None)) if category else 0.0
+                price = self._get_pricing(category, getattr(appointment, 'calendar', None)) if category else 0.0
                 total = float(qty) * float(price)
                 subtotal += total
             # Calculate Total (sum of all item totals)
             total = 0.0
             for label, qty, category in item_fields:
-                if label == "Additional Premium protein ($15)":
-                    price = 15.0
-                elif label == "Additional Protein ($10)":
-                    price = 10.0
-                else:
-                    price = self._get_pricing(category, getattr(appointment, 'calendar', None)) if category else 0.0
+                price = self._get_pricing(category, getattr(appointment, 'calendar', None)) if category else 0.0
                 item_total = float(qty) * float(price)
                 total += item_total
             # Travel fee and deposit from form data, ensure float
@@ -568,8 +554,25 @@ class PDFGenerator:
             # --- FEES/TOTAL + NOTE, SIDE BY SIDE, BORDERLESS ---
             fees_data = [
                 [Paragraph("<b>Traveling Fee</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)), f"{currency_symbol}{travel_fee:.2f}"],
-                [Paragraph("<b>Deposit</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)), f"{currency_symbol}{deposit:.2f}"],
             ]
+            # Add deposit with note
+            if deposit > 0:
+                deposit_cell = Table([
+                    [Paragraph("<b>Deposit</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0))],
+                    [Paragraph("The deposit has already been deducted from the total shown on this invoice.", 
+                              ParagraphStyle('DepositNote', fontSize=font_size-2, fontName='Helvetica', alignment=0, textColor=colors.HexColor('#666666'), spaceBefore=1))]
+                ], colWidths=[2.5*inch])
+                deposit_cell.setStyle(TableStyle([
+                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                    ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                    ('LEFTPADDING', (0,0), (-1,-1), 0),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                    ('TOPPADDING', (0,0), (-1,-1), 0),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                ]))
+                fees_data.append([deposit_cell, f"{currency_symbol}{deposit:.2f}"])
+            else:
+                fees_data.append([Paragraph("<b>Deposit</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)), f"{currency_symbol}{deposit:.2f}"])
             if processing_fee_percent > 0:
                 processing_fee_display = (total + travel_fee - deposit) * processing_fee_percent
                 fees_data.append([
@@ -604,10 +607,10 @@ class PDFGenerator:
                 ('RIGHTPADDING', (0,0), (-1,-1), 0),
             ]))
             elements.append(fees_row_table)
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, 4))
             # --- ALLERGIES ---
             # elements.append(Paragraph(f"<b>Any food allergies?</b> {allergies}", ParagraphStyle('Normal', fontSize=font_size-2, spaceBefore=2, spaceAfter=2)))
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, 3))
             # --- TIP TABLE ---
             # Define note_style before use
             tip_base = total + travel_fee
@@ -641,16 +644,17 @@ class PDFGenerator:
                 ('ALIGN', (0,0), (-1,-1), 'LEFT'),
             ]))
             elements.append(tip_row_table)
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, 3))
             # --- FOOTER ---
-            elements.append(Spacer(1, 6))
-            elements.append(HRFlowable(width="100%", thickness=1, color=colors.black, spaceBefore=4, spaceAfter=4))
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, 3))
+            elements.append(HRFlowable(width="100%", thickness=1, color=colors.black, spaceBefore=2, spaceAfter=2))
+            elements.append(Spacer(1, 3))
             # elements.append(Paragraph("Thank you for having us. Hope you enjoyed it!", ParagraphStyle('Normal', fontSize=compact_font_size+1, alignment=0, spaceBefore=4, spaceAfter=2)))
             # elements.append(Paragraph("Follow/tag us on instagram: @mobilehibachi_4u", ParagraphStyle('Normal', fontSize=compact_font_size, alignment=0, spaceBefore=2, spaceAfter=2)))
-            elements.append(Paragraph('<b>Our website:</b> <font color="blue">https://www.mobilehibachi4u.com/</font>', ParagraphStyle('Normal', fontSize=font_size, alignment=0, spaceBefore=2, spaceAfter=2)))
-            elements.append(Paragraph("<b>Weather:</b> Please ensure there is some type of covering for the chef to cook under in case of rain. We can cook under tents, patios, garages, or indoors — whichever works best for your space.", ParagraphStyle('Normal', fontSize=font_size-2, alignment=0, spaceBefore=2, spaceAfter=2)))
-            elements.append(Paragraph("<b>If you have any questions about this invoice, feel free to call us at 240-689-8383 or email chef@mobilehibachi4u.com.</b>", ParagraphStyle('Normal', fontSize=font_size-2, alignment=0, spaceBefore=2, spaceAfter=2)))
+            elements.append(Paragraph('<b>Our website:</b> <font color="blue">https://www.mobilehibachi4u.com/</font>', ParagraphStyle('Normal', fontSize=font_size, alignment=0, spaceBefore=1, spaceAfter=1)))
+            elements.append(Paragraph("<b>Weather:</b> Please ensure there is some type of covering for the chef to cook under in case of rain. We can cook under tents, patios, garages, or indoors — whichever works best for your space.", ParagraphStyle('Normal', fontSize=font_size-2, alignment=0, spaceBefore=1, spaceAfter=1)))
+            elements.append(Paragraph("<b>If you have any questions about this invoice, feel free to call us at 240-689-8383 or email chef@mobilehibachi4u.com.</b>", ParagraphStyle('Normal', fontSize=font_size-2, alignment=0, spaceBefore=1, spaceAfter=1)))
+            elements.append(Paragraph("<b>917-238-2030 / 201-586-4588</b>", ParagraphStyle('Normal', fontSize=font_size-2, alignment=0, spaceBefore=1, spaceAfter=1, textColor=colors.black)))
             # Build PDF
             # doc.build(elements) # This line is removed as per the edit hint.
             return elements # Return the list of elements instead of building the PDF.

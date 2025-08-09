@@ -261,7 +261,7 @@ class PDFGenerator:
         # --- CONTACT INFO BAR ---
         contact_style = ParagraphStyle('Contact', fontSize=font_size, fontName='Helvetica-Bold', textColor=colors.black)
         contact_data = [
-            [Paragraph(f"<b>Phone:</b> (555) 123-4567", contact_style), Paragraph(f"<b>Website:</b> www.mobilehibachi4u.com", contact_style)]
+            [Paragraph(f"<b>Phone:</b> 201-586-4588", contact_style), Paragraph(f"<b>Website:</b> www.mobilehibachi4u.com", contact_style)]
         ]
         contact_table = Table(contact_data, colWidths=[2.5*inch, 4.3*inch], hAlign='LEFT')
         contact_table.setStyle(TableStyle([

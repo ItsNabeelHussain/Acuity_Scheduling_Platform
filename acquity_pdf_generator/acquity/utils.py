@@ -45,7 +45,7 @@ def format_time_in_timezone(dt, timezone_str, format_str='%A, %B %d, %Y at %I:%M
     Args:
         dt: datetime object (assumed to be in UTC)
         timezone_str: string representation of timezone
-        format_str: format string for strftime
+        format_str: format string for strftime (Python format, not Django template format)
     
     Returns:
         formatted string in the specified timezone, or 'N/A' if conversion fails
@@ -56,4 +56,43 @@ def format_time_in_timezone(dt, timezone_str, format_str='%A, %B %d, %Y at %I:%M
             return local_time.strftime(format_str)
     except Exception:
         pass
-    return 'N/A' 
+    return 'N/A'
+
+
+def django_format_to_python_format(django_format):
+    """
+    Convert Django template format strings to Python strftime format strings.
+    
+    Args:
+        django_format: Django template format string (e.g., "M d, Y, g:i A")
+    
+    Returns:
+        Python strftime format string
+    """
+    # Common Django to Python format mappings
+    format_mapping = {
+        'Y': '%Y',  # Year, 4 digits
+        'y': '%y',  # Year, 2 digits
+        'n': '%m',  # Month, no leading zero
+        'm': '%m',  # Month, leading zero
+        'F': '%B',  # Full month name
+        'M': '%b',  # Abbreviated month name
+        'j': '%d',  # Day, no leading zero
+        'd': '%d',  # Day, leading zero
+        'D': '%a',  # Abbreviated day name
+        'l': '%A',  # Full day name
+        'g': '%I',  # Hour, 12-hour format, no leading zero
+        'h': '%I',  # Hour, 12-hour format, leading zero
+        'H': '%H',  # Hour, 24-hour format, leading zero
+        'G': '%H',  # Hour, 24-hour format, no leading zero
+        'i': '%M',  # Minutes, leading zero
+        's': '%S',  # Seconds, leading zero
+        'A': '%p',  # AM/PM
+        'a': '%p',  # am/pm
+    }
+    
+    python_format = django_format
+    for django_char, python_char in format_mapping.items():
+        python_format = python_format.replace(django_char, python_char)
+    
+    return python_format 

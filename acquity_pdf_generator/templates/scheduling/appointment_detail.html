@@ -1,5 +1,6 @@
 <!-- templates/scheduling/appointment_detail.html -->
 {% extends 'base.html' %}
+{% load timezone_filters %}
 
 {% block title %}Appointment Details - {{ appointment.client_name }}{% endblock %}
 
@@ -73,8 +74,8 @@
                     <hr>
                     <h6><i class="fas fa-clock me-2 text-muted"></i>Schedule</h6>
                     <p class="ms-4">
-                        <strong>Date:</strong> {{ appointment.start_time|date:"l, F d, Y" }}<br>
-                        <strong>Time:</strong> {{ appointment.start_time|time:"g:i A" }} - {{ appointment.end_time|time:"g:i A" }}
+                        <strong>Date:</strong> {{ appointment|timezone_date:"l, F d, Y" }}<br>
+                        <strong>Time:</strong> {{ appointment|timezone_time:"g:i A" }} - {{ appointment|timezone_field_time:"end_time" }}
                     </p>
                 </div>
             </div>

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load timezone_filters %}
 
 {% block content %}
 <style>
@@ -152,11 +153,128 @@
         gap: 6px;
         min-width: 120px;
     }
+    
+    /* Date filter styles */
+    .date-filter-section {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: #f8fafc;
+        padding: 12px 16px;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        flex-wrap: wrap;
+        margin-right: 12px;
+    }
+    
+    .search-section {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .date-input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 120px;
+    }
+    
+    .date-label {
+        font-size: 11px;
+        font-weight: 500;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .date-input {
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 13px;
+        background: white;
+        transition: border-color 0.2s;
+    }
+    
+    .date-input:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+    
+    .filter-btn {
+        background: var(--primary-color);
+        border: none;
+        color: white;
+        border-radius: 6px;
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: fit-content;
+        margin-top: 18px;
+    }
+    
+    .filter-btn:hover {
+        background: var(--secondary-color);
+    }
+    
+    .clear-dates-btn {
+        background: #f3f4f6;
+        border: 1px solid #d1d5db;
+        color: #6b7280;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 13px;
+        transition: all 0.2s;
+        cursor: pointer;
+        height: fit-content;
+        margin-top: 18px;
+    }
+    
+    .clear-dates-btn:hover {
+        background: #e5e7eb;
+        color: #374151;
+    }
+    
     @media (max-width: 600px) {
         .action-buttons {
             flex-direction: column;
             align-items: flex-start;
             min-width: 0;
+        }
+        
+        #combinedForm {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 12px;
+        }
+        
+        .date-filter-section {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
+            margin-right: 0;
+        }
+        
+        .date-input-group {
+            min-width: 0;
+        }
+        
+        .search-section {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        
+        .search-section .btn {
+            align-self: center;
+            margin-left: 0 !important;
+            margin-top: 8px;
         }
     }
 </style>
@@ -220,9 +338,34 @@
                 <a href="{% url 'sync_data' %}?next={{ request.path }}" class="btn btn-sm btn-outline-primary" title="Manually sync data from Acuity">
                     <i class="fas fa-sync-alt"></i> Manual Refresh
                 </a>
-                <form method="get" class="d-flex">
-                    <input type="text" name="q" class="form-control form-control-sm" placeholder="Search..." value="{{ search_query|default:'' }}">
-                    <button type="submit" class="btn btn-sm btn-primary ms-2"><i class="fas fa-search"></i></button>
+                
+                <!-- Combined Search and Date Filter Form -->
+                <form method="get" class="d-flex align-items-center gap-3" id="combinedForm">
+                    <!-- Date Filter Section -->
+                    <div class="date-filter-section">
+                        <div class="date-input-group">
+                            <label for="startDate" class="date-label">From:</label>
+                            <input type="date" id="startDate" name="start_date" class="date-input" 
+                                   value="{{ start_date|default:'' }}">
+                        </div>
+                        <div class="date-input-group">
+                            <label for="endDate" class="date-label">To:</label>
+                            <input type="date" id="endDate" name="end_date" class="date-input" 
+                                   value="{{ end_date|default:'' }}">
+                        </div>
+                        <button type="button" id="clearDates" class="clear-dates-btn" title="Clear date filter">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Search Section -->
+                    <div class="search-section">
+                        <input type="text" name="q" id="searchInput" class="form-control form-control-sm" 
+                               placeholder="Search..." value="{{ search_query|default:'' }}">
+                        <button type="submit" class="btn btn-sm btn-primary ms-2">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>
@@ -256,7 +399,7 @@
                         {% endif %}
                         <td>{{ appt.client_name }}</td>
                         <td>{{ appt.appointment_type.name }}</td>
-                        <td>{{ appt.start_time|date:"M d, Y, g:i A" }}</td>
+                        <td>{{ appt|timezone_datetime:"M d, Y, g:i A" }}</td>
                         <td>
                             <span class="badge 
                                 {% if appt.status == 'scheduled' %}bg-info
@@ -297,8 +440,8 @@
             <nav aria-label="Page navigation">
                 <ul class="pagination">
                     {% if appointments_page.has_previous %}
-                        <li class="page-item"><a class="page-link" href="?page=1&q={{ search_query|default:'' }}">&laquo; First</a></li>
-                        <li class="page-item"><a class="page-link" href="?page={{ appointments_page.previous_page_number }}&q={{ search_query|default:'' }}">Previous</a></li>
+                        <li class="page-item"><a class="page-link" href="?page=1&q={{ search_query|default:'' }}&start_date={{ start_date|default:'' }}&end_date={{ end_date|default:'' }}">&laquo; First</a></li>
+                        <li class="page-item"><a class="page-link" href="?page={{ appointments_page.previous_page_number }}&q={{ search_query|default:'' }}&start_date={{ start_date|default:'' }}&end_date={{ end_date|default:'' }}">Previous</a></li>
                     {% else %}
                         <li class="page-item disabled"><a class="page-link" href="#">&laquo; First</a></li>
                         <li class="page-item disabled"><a class="page-link" href="#">Previous</a></li>
@@ -307,8 +450,8 @@
                     <li class="page-item disabled"><span class="page-link">Page {{ appointments_page.number }} of {{ appointments_page.paginator.num_pages }}</span></li>
 
                     {% if appointments_page.has_next %}
-                        <li class="page-item"><a class="page-link" href="?page={{ appointments_page.next_page_number }}&q={{ search_query|default:'' }}">Next</a></li>
-                        <li class="page-item"><a class="page-link" href="?page={{ appointments_page.paginator.num_pages }}&q={{ search_query|default:'' }}">Last &raquo;</a></li>
+                        <li class="page-item"><a class="page-link" href="?page={{ appointments_page.next_page_number }}&q={{ search_query|default:'' }}&start_date={{ start_date|default:'' }}&end_date={{ end_date|default:'' }}">Next</a></li>
+                        <li class="page-item"><a class="page-link" href="?page={{ appointments_page.paginator.num_pages }}&q={{ search_query|default:'' }}&start_date={{ start_date|default:'' }}&end_date={{ end_date|default:'' }}">Last &raquo;</a></li>
                     {% else %}
                         <li class="page-item disabled"><a class="page-link" href="#">Next</a></li>
                         <li class="page-item disabled"><a class="page-link" href="#">Last &raquo;</a></li>
@@ -359,6 +502,58 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         closeModal();
     }
+});
+
+// Auto-search functionality
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const combinedForm = document.getElementById('combinedForm');
+    const startDate = document.getElementById('startDate');
+    const endDate = document.getElementById('endDate');
+    const clearDatesBtn = document.getElementById('clearDates');
+    
+    let searchTimeout;
+    
+    // Auto-search when typing (with debounce)
+    searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(function() {
+            // If search input is empty, automatically submit to show all results
+            if (searchInput.value.trim() === '') {
+                combinedForm.submit();
+            }
+        }, 500); // 500ms delay
+    });
+    
+    // Auto-search when search input loses focus and is empty
+    searchInput.addEventListener('blur', function() {
+        if (searchInput.value.trim() === '') {
+            combinedForm.submit();
+        }
+    });
+    
+    // Clear dates functionality
+    clearDatesBtn.addEventListener('click', function() {
+        startDate.value = '';
+        endDate.value = '';
+        
+        // Submit the form to refresh with cleared dates
+        combinedForm.submit();
+    });
+    
+    // Debug logging to help troubleshoot
+    console.log('Combined form initialized');
+    console.log('Start date:', startDate.value);
+    console.log('End date:', endDate.value);
+    console.log('Search query:', searchInput.value);
+    
+    // Add form submission logging
+    combinedForm.addEventListener('submit', function(e) {
+        console.log('Form submitting with:');
+        console.log('Start date:', startDate.value);
+        console.log('End date:', endDate.value);
+        console.log('Search query:', searchInput.value);
+    });
 });
 </script>
 {% endblock %}

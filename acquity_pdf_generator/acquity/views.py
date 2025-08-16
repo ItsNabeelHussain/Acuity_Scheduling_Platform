@@ -51,6 +51,24 @@ def dashboard(request):
     # The total number of records accessible by the user, before any search filters.
     total_records = all_appointments.count()
 
+    # Apply date filters if present
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    
+    if start_date:
+        try:
+            start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
+            all_appointments = all_appointments.filter(start_time__date__gte=start_datetime.date())
+        except ValueError:
+            start_date = ''
+    
+    if end_date:
+        try:
+            end_datetime = datetime.strptime(end_date, '%Y-%m-%d')
+            all_appointments = all_appointments.filter(start_time__date__lte=end_datetime.date())
+        except ValueError:
+            end_date = ''
+
     # Apply search filter if present
     search_query = request.GET.get('q', '')
     if search_query:
@@ -90,6 +108,8 @@ def dashboard(request):
         'pdfs_generated': pdfs_generated,
         'last_sync': last_sync,
         'search_query': search_query,
+        'start_date': start_date,
+        'end_date': end_date,
     }
     return render(request, 'scheduling/dashboard.html', context)
 
@@ -396,6 +416,24 @@ def dashboard(request):
     # The total number of records accessible by the user, before any search filters.
     total_records = all_appointments.count()
 
+    # Apply date filters if present
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    
+    if start_date:
+        try:
+            start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
+            all_appointments = all_appointments.filter(start_time__date__gte=start_datetime.date())
+        except ValueError:
+            start_date = ''
+    
+    if end_date:
+        try:
+            end_datetime = datetime.strptime(end_date, '%Y-%m-%d')
+            all_appointments = all_appointments.filter(start_time__date__lte=end_datetime.date())
+        except ValueError:
+            end_date = ''
+
     # Apply search filter if present
     search_query = request.GET.get('q', '')
     if search_query:
@@ -425,6 +463,8 @@ def dashboard(request):
         'pdfs_generated': pdfs_generated,
         'last_sync': last_sync,
         'search_query': search_query,
+        'start_date': start_date,
+        'end_date': end_date,
     }
     return render(request, 'scheduling/dashboard.html', context)
 
@@ -446,28 +486,46 @@ def calendar_appointments(request, calendar_id):
     appointments = Appointment.objects.filter(calendar=calendar).order_by('-start_time')
     
     # Filter by date range if provided
-    start_date = request.GET.get('start_date')
-    end_date = request.GET.get('end_date')
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
     
-    if start_date:
+    print(f"DEBUG: Raw start_date from request: {start_date_str}")
+    print(f"DEBUG: Raw end_date from request: {end_date_str}")
+    
+    # Parse dates for filtering
+    start_date_parsed = None
+    end_date_parsed = None
+    
+    if start_date_str:
         try:
-            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-            appointments = appointments.filter(start_time__date__gte=start_date).order_by('-start_time')
-        except ValueError:
+            start_date_parsed = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            print(f"DEBUG: Parsed start_date: {start_date_parsed}")
+            appointments = appointments.filter(start_time__date__gte=start_date_parsed).order_by('-start_time')
+            print(f"DEBUG: Appointments after start_date filter: {appointments.count()}")
+        except ValueError as e:
+            print(f"DEBUG: Error parsing start_date: {e}")
             pass
     
-    if end_date:
+    if end_date_str:
         try:
-            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-            appointments = appointments.filter(start_time__date__lte=end_date).order_by('-start_time')
-        except ValueError:
+            end_date_parsed = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            print(f"DEBUG: Parsed end_date: {end_date_parsed}")
+            appointments = appointments.filter(start_time__date__lte=end_date_parsed).order_by('-start_time')
+            print(f"DEBUG: Appointments after end_date filter: {appointments.count()}")
+        except ValueError as e:
+            print(f"DEBUG: Error parsing end_date: {e}")
             pass
+    
+    print(f"DEBUG: Final appointments count: {appointments.count()}")
+    print(f"DEBUG: Context start_date: {start_date_str}")
+    print(f"DEBUG: Context end_date: {end_date_str}")
     
     context = {
         'calendar': calendar,
         'appointments': appointments,
-        'start_date': start_date,
-        'end_date': end_date,
+        'start_date': start_date_str,
+        'end_date': end_date_str,
+        'debug': True,  # Enable debug mode for troubleshooting
     }
     return render(request, 'scheduling/calendar_appointments.html', context)
 

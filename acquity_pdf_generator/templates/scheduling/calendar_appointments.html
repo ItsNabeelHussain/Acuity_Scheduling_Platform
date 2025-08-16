@@ -1,5 +1,6 @@
 <!-- templates/scheduling/calendar_appointments.html -->
 {% extends 'base.html' %}
+{% load timezone_filters %}
 
 {% block title %}{{ calendar.name }} - Appointments{% endblock %}
 
@@ -27,7 +28,7 @@
     <div class="card-body">
         <textarea class="form-control order-details-textbox" rows="15" readonly>
 {% for appointment in appointments %}
-=== APPOINTMENT: {{ appointment.client_name }} - {{ appointment.start_time|date:"M d, Y g:i A" }} ===
+=== APPOINTMENT: {{ appointment.client_name }} - {{ appointment|timezone_datetime:"M d, Y g:i A" }} ===
 {% if appointment.form_data %}
 {% for form in appointment.form_data %}
 {% for field in form.values %}
@@ -47,14 +48,25 @@ No additional order details available
 <!-- Filter Form -->
 <div class="card mb-4">
     <div class="card-body">
-        <form method="get" class="row g-3">
+        <!-- Debug Info -->
+        {% if debug %}
+        <div class="alert alert-info mb-3">
+            <strong>Debug Info:</strong><br>
+            Start Date: {{ start_date|default:"None" }}<br>
+            End Date: {{ end_date|default:"None" }}<br>
+            Appointments Count: {{ appointments.count }}<br>
+            GET Parameters: {{ request.GET.urlencode }}
+        </div>
+        {% endif %}
+        
+        <form method="get" action="" class="row g-3">
             <div class="col-md-4">
                 <label for="start_date" class="form-label">Start Date</label>
-                <input type="date" class="form-control" id="start_date" name="start_date" value="{{ start_date|date:'Y-m-d' }}">
+                <input type="date" class="form-control" id="start_date" name="start_date" value="{{ start_date|default:'' }}">
             </div>
             <div class="col-md-4">
                 <label for="end_date" class="form-label">End Date</label>
-                <input type="date" class="form-control" id="end_date" name="end_date" value="{{ end_date|date:'Y-m-d' }}">
+                <input type="date" class="form-control" id="end_date" name="end_date" value="{{ end_date|default:'' }}">
             </div>
             <div class="col-md-4">
                 <label class="form-label">&nbsp;</label>
@@ -65,8 +77,26 @@ No additional order details available
                 </div>
             </div>
         </form>
+        <div class="mt-2">
+            <a href="{% url 'calendar_appointments' calendar.id %}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-times me-1"></i>Clear Filters
+            </a>
+        </div>
+        {% if start_date or end_date %}
+        <div class="mt-3">
+            <small class="text-muted">
+                <i class="fas fa-info-circle me-1"></i>
+                Filtering appointments from 
+                {% if start_date %}{{ start_date }}{% else %}beginning{% endif %} 
+                to 
+                {% if end_date %}{{ end_date }}{% else %}end{% endif %}
+            </small>
+        </div>
+        {% endif %}
     </div>
 </div>
+
+
 
 <!-- Appointments List -->
 <div class="card">
@@ -108,8 +138,8 @@ No additional order details available
                                 {% endif %}
                             </td>
                             <td>
-                                <strong>{{ appointment.start_time|date:"D, M d, Y" }}</strong>
-                                <br><small class="text-muted">{{ appointment.start_time|time:"g:i A" }} - {{ appointment.end_time|time:"g:i A" }}</small>
+                                <strong>{{ appointment|timezone_date:"D, M d, Y" }}</strong>
+                                <br><small class="text-muted">{{ appointment|timezone_time:"g:i A" }} - {{ appointment|timezone_field_time:"end_time" }}</small>
                             </td>
                             <td>{{ appointment.appointment_type.duration }} min</td>
                             <td>
@@ -171,4 +201,35 @@ No additional order details available
         box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
     }
 </style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Calendar Appointments Page Loaded');
+    console.log('Start Date:', '{{ start_date }}');
+    console.log('End Date:', '{{ end_date }}');
+    console.log('Appointments Count:', {{ appointments.count }});
+    
+    // Simple form validation
+    const startDateInput = document.getElementById('start_date');
+    const endDateInput = document.getElementById('end_date');
+    const filterForm = document.querySelector('form[method="get"]');
+    
+    if (filterForm) {
+        filterForm.addEventListener('submit', function(e) {
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
+            
+            if (startDate && endDate && startDate > endDate) {
+                alert('Start date cannot be after end date');
+                e.preventDefault();
+                return false;
+            }
+            
+            console.log('Form submitting with dates:', { startDate, endDate });
+        });
+    }
+});
+</script>
 {% endblock %}

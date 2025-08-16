@@ -107,6 +107,9 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
+# IMPORTANT: Keep this as UTC for database storage
+# Appointment times are stored in UTC but displayed in their original timezone
+# This prevents timezone conversion issues when appointments come from different states
 TIME_ZONE = 'UTC'
 
 USE_I18N = True

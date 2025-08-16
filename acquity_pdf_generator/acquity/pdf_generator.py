@@ -343,6 +343,8 @@ class PDFGenerator:
                 deposit = float(deposit)
             except (TypeError, ValueError):
                 deposit = 0.0
+            # Extract processing fee ONLY from form data - this is the source of truth
+            # If no processing fee exists in the form data, this will be 0.0
             processing_fee = get_form_field(forms, ['processing fee (if any)'])
             processing_fee = float(processing_fee) if processing_fee and str(processing_fee).replace('.','',1).isdigit() else 0.0
             # Convert to int/float where appropriate
@@ -389,11 +391,13 @@ class PDFGenerator:
             # Debug log for fee
             import logging
             logging.debug(f"Fee value before calculations: {fee} (type: {type(fee)})")
-            # Use processing_fee from appointment model (default 1.0)
-            processing_fee = getattr(appointment, 'processing_fee', 0.0) or 0.0
+            # Only use processing_fee from form data, not from database field
+            # This ensures we don't show processing fees when they don't exist in the API response
+            # The processing_fee variable is already set from form data extraction above
+            # If it's 0.0, it means no processing fee was found in the form data
             # Fetch dynamic prices
             # Optionally, you can use appointment/calendar location if available
-            location = getattr(appointment, 'location', None)
+            location = getattr(appointment, 'calendar', None)
             adult_price = self._get_pricing('adult', location)
             kid_price = self._get_pricing('kid', location)
             # --- HEADER TABLE (Address) ---
@@ -413,8 +417,16 @@ class PDFGenerator:
             elements.append(Spacer(1, 4))
             
             # --- EVENT DETAILS ---
+            # Format time in the original timezone from Acuity
+            from acquity.utils import format_time_in_timezone
+            original_tz_str = getattr(appointment, 'original_timezone', 'UTC')
+            start_time_display = format_time_in_timezone(
+                getattr(appointment, 'start_time', None), 
+                original_tz_str
+            )
+            
             event_details = [
-                [Paragraph(f"<b>When:</b> {appointment.start_time.strftime('%A, %B %d, %Y at %I:%M %p') if getattr(appointment, 'start_time', None) else 'N/A'}", self.styles['Normal'])],
+                [Paragraph(f"<b>When:</b> {start_time_display}", self.styles['Normal'])],
                 [Paragraph(f"<b>Name:</b> {getattr(appointment, 'client_name', 'N/A')}", self.styles['Normal'])],
                 [Paragraph(f"<b>Phone:</b> {getattr(appointment, 'client_phone', 'N/A')}", self.styles['Normal'])],
             ]
@@ -536,11 +548,11 @@ class PDFGenerator:
             # Travel fee and deposit from form data, ensure float
             travel_fee = float(travel_fee) if travel_fee and str(travel_fee).replace('.','',1).isdigit() else 0.0
             deposit = float(deposit) if deposit and str(deposit).replace('.','',1).isdigit() else 0.0
-            # Processing fee percent
-            processing_fee_from_api = getattr(appointment, 'processing_fee', None)
+            # Processing fee percent - only use if it exists in form data
             processing_fee_percent = 0.0
-            if processing_fee_from_api is not None and float(processing_fee_from_api) > 0:
-                pf = float(processing_fee_from_api)
+            # Check if processing_fee was extracted from form data (not from database)
+            if processing_fee > 0:
+                pf = float(processing_fee)
                 if pf >= 1:
                     processing_fee_percent = pf / 100.0
                 else:
@@ -573,6 +585,8 @@ class PDFGenerator:
                 fees_data.append([deposit_cell, f"{currency_symbol}{deposit:.2f}"])
             else:
                 fees_data.append([Paragraph("<b>Deposit</b>", ParagraphStyle('Normal', fontSize=font_size, alignment=0, leftIndent=0)), f"{currency_symbol}{deposit:.2f}"])
+            # Only show processing fee if it was found in the form data (processing_fee_percent > 0)
+            # This prevents showing default/fallback values from the database
             if processing_fee_percent > 0:
                 processing_fee_display = (total + travel_fee - deposit) * processing_fee_percent
                 fees_data.append([

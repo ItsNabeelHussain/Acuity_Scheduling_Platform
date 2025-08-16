@@ -35,10 +35,10 @@ class AppointmentTypeAdmin(admin.ModelAdmin):
 
 @admin.register(Appointment)
 class AppointmentAdmin(admin.ModelAdmin):
-    list_display = ['client_name', 'calendar', 'appointment_type', 'start_time', 'status', 'price', 'display_form_data']
-    list_filter = ['status', 'calendar', 'appointment_type', 'start_time']
+    list_display = ['client_name', 'calendar', 'appointment_type', 'start_time', 'status', 'price', 'original_timezone', 'display_form_data']
+    list_filter = ['status', 'calendar', 'appointment_type', 'start_time', 'original_timezone']
     search_fields = ['client_name', 'client_email', 'acuity_appointment_id']
-    readonly_fields = ['acuity_appointment_id', 'created_at','last_synced', 'form_data']
+    readonly_fields = ['acuity_appointment_id', 'created_at','last_synced', 'form_data', 'original_timezone']
     date_hierarchy = 'start_time'
 
     def display_form_data(self, obj):

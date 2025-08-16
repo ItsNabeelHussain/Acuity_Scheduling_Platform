@@ -75,6 +75,11 @@ class Appointment(models.Model):
     # Processing fee multiplier (e.g., 1.04 for 4% fee)
     processing_fee = models.FloatField(default=0.0, help_text="Multiplier for processing fee (e.g., 1.04 for 4% fee)")
     
+    # Original timezone from Acuity (e.g., 'America/New_York', 'America/Los_Angeles')
+    # This is needed to display times correctly regardless of server timezone
+    original_timezone = models.CharField(max_length=50, blank=True, default="", 
+                                       help_text="Original timezone from Acuity (e.g., America/New_York)")
+    
     # Tracking
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

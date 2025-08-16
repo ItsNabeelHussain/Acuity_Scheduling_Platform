@@ -25,6 +25,8 @@ class AcuityService:
         1. Full ISO-like strings (e.g., '2025-09-13T18:00:00-0400').
         2. Time-only strings (e.g., '7:30pm') which require a separate 'date' field.
         3. Multiple date formats for the 'date' field ('YYYY-MM-DD' or 'Month Day, YYYY').
+        
+        IMPORTANT: All times are converted to UTC for storage but preserve original timezone info.
         """
         time_str = apt_data.get(time_key)
         if not time_str:
@@ -38,7 +40,24 @@ class AcuityService:
                     time_str = time_str.replace('Z', '+00:00')
                 elif len(time_str) > 4 and time_str[-5] in ('+', '-') and time_str[-3] != ':':
                     time_str = time_str[:-2] + ':' + time_str[-2:]
-                return datetime.fromisoformat(time_str), None
+                
+                # Parse the datetime with timezone info
+                dt_with_tz = datetime.fromisoformat(time_str)
+                
+                # Convert to UTC for storage while preserving original timezone
+                if dt_with_tz.tzinfo is not None:
+                    # Store the original timezone info for display purposes
+                    original_tz = dt_with_tz.tzinfo
+                    # Convert to UTC for database storage
+                    utc_dt = dt_with_tz.astimezone(timezone.utc)
+                    # Add original timezone info as a custom attribute for later use
+                    utc_dt.original_timezone = original_tz
+                    return utc_dt, None
+                else:
+                    # No timezone info, assume it's in the client's timezone
+                    # We'll need to get this from the appointment data
+                    return dt_with_tz, None
+                    
             except (ValueError, TypeError) as e:
                 return None, f"Invalid ISO-like format: {e}"
 
@@ -63,7 +82,12 @@ class AcuityService:
                 if tz_str:
                     try:
                         tz = ZoneInfo(tz_str)
-                        return naive_dt.replace(tzinfo=tz), None
+                        dt_with_tz = naive_dt.replace(tzinfo=tz)
+                        # Convert to UTC for storage
+                        utc_dt = dt_with_tz.astimezone(timezone.utc)
+                        # Preserve original timezone info
+                        utc_dt.original_timezone = tz
+                        return utc_dt, None
                     except ZoneInfoNotFoundError:
                         print(f"Warning: Unknown timezone '{tz_str}' for apt {apt_data.get('id')}. Using naive dt.")
                         return naive_dt, None
@@ -246,6 +270,36 @@ class AcuityService:
                                 labels = apt_data.get('labels', [])
                                 if labels and isinstance(labels, list) and len(labels) > 0:
                                     color_tag = labels[0].get('color', '')
+                                
+                                # Extract timezone information
+                                timezone_str = apt_data.get('timezone', '')
+                                if not timezone_str:
+                                    # Try to get timezone from the datetime string if available
+                                    if 'T' in apt_data.get('datetime', ''):
+                                        try:
+                                            dt_str = apt_data.get('datetime', '')
+                                            if dt_str.endswith('Z'):
+                                                timezone_str = 'UTC'
+                                            elif len(dt_str) > 4 and dt_str[-5] in ('+', '-'):
+                                                # Extract timezone offset and convert to timezone name
+                                                offset = dt_str[-5:]
+                                                if offset == '-0500':
+                                                    timezone_str = 'America/New_York'  # EST
+                                                elif offset == '-0400':
+                                                    timezone_str = 'America/New_York'  # EDT
+                                                elif offset == '-0800':
+                                                    timezone_str = 'America/Los_Angeles'  # PST
+                                                elif offset == '-0700':
+                                                    timezone_str = 'America/Los_Angeles'  # PDT
+                                                elif offset == '-0600':
+                                                    timezone_str = 'America/Chicago'  # CST
+                                                elif offset == '-0500':
+                                                    timezone_str = 'America/Chicago'  # CDT
+                                                else:
+                                                    timezone_str = 'UTC'  # Default fallback
+                                        except Exception:
+                                            timezone_str = 'UTC'
+                                
                                 acuity_id = str(apt_data.get('id', ''))
                                 if acuity_id in existing_map:
                                     # Update existing
@@ -262,6 +316,7 @@ class AcuityService:
                                     appt.status = apt_data.get('status', 'scheduled').lower()
                                     appt.form_data = forms
                                     appt.processing_fee = processing_fee
+                                    appt.original_timezone = timezone_str
                                     appt.last_synced = timezone.now()
                                     appt.color_tag = color_tag
                                     update_objs.append(appt)
@@ -283,6 +338,7 @@ class AcuityService:
                                         status=apt_data.get('status', 'scheduled').lower(),
                                         form_data=forms,
                                         processing_fee=processing_fee,
+                                        original_timezone=timezone_str,
                                         last_synced=timezone.now(),
                                         color_tag=color_tag,
                                     )
@@ -300,7 +356,7 @@ class AcuityService:
                             Appointment.objects.bulk_update(update_objs, [
                                 'calendar', 'appointment_type', 'client_name', 'client_email', 'client_phone',
                                 'start_time', 'end_time', 'notes', 'price', 'status', 'form_data',
-                                'processing_fee', 'last_synced', 'color_tag'
+                                'processing_fee', 'original_timezone', 'last_synced', 'color_tag'
                             ], batch_size=2000)
                         print(f"Batch {page} saved to database: {batch_created} created, {batch_updated} updated")
                         page += 1
@@ -402,6 +458,35 @@ class AcuityService:
                             if labels and isinstance(labels, list) and len(labels) > 0:
                                 color_tag = labels[0].get('color', '')
 
+                            # Extract timezone information
+                            timezone_str = apt_data.get('timezone', '')
+                            if not timezone_str:
+                                # Try to get timezone from the datetime string if available
+                                if 'T' in apt_data.get('datetime', ''):
+                                    try:
+                                        dt_str = apt_data.get('datetime', '')
+                                        if dt_str.endswith('Z'):
+                                            timezone_str = 'UTC'
+                                        elif len(dt_str) > 4 and dt_str[-5] in ('+', '-'):
+                                            # Extract timezone offset and convert to timezone name
+                                            offset = dt_str[-5:]
+                                            if offset == '-0500':
+                                                timezone_str = 'America/New_York'  # EST
+                                            elif offset == '-0400':
+                                                timezone_str = 'America/New_York'  # EDT
+                                            elif offset == '-0800':
+                                                timezone_str = 'America/Los_Angeles'  # PST
+                                            elif offset == '-0700':
+                                                timezone_str = 'America/Los_Angeles'  # PDT
+                                            elif offset == '-0600':
+                                                timezone_str = 'America/Chicago'  # CST
+                                            elif offset == '-0500':
+                                                timezone_str = 'America/Chicago'  # CDT
+                                            else:
+                                                timezone_str = 'UTC'  # Default fallback
+                                    except Exception:
+                                        timezone_str = 'UTC'
+
                             appointment, created = Appointment.objects.update_or_create(
                                 acuity_appointment_id=str(apt_data.get('id', '')),
                                 defaults={
@@ -417,6 +502,7 @@ class AcuityService:
                                     'status': apt_data.get('status', 'scheduled').lower(),
                                     'form_data': forms,
                                     'processing_fee': processing_fee,
+                                    'original_timezone': timezone_str,
                                     'last_synced': timezone.now(),
                                     'color_tag': color_tag,
                                 }

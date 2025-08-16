@@ -43,8 +43,6 @@ def safe_convert_to_utc(dt_with_tz, original_tz):
     try:
         # Try to convert to UTC
         utc_dt = dt_with_tz.astimezone(ZoneInfo('UTC'))
-        # Add original timezone info as a custom attribute for later use
-        utc_dt.original_timezone = original_tz
         return utc_dt, True
     except Exception as e:
         print(f"Warning: Could not convert to UTC: {e}")
@@ -55,7 +53,6 @@ def safe_convert_to_utc(dt_with_tz, original_tz):
                 if offset:
                     utc_dt = dt_with_tz - offset
                     utc_dt = utc_dt.replace(tzinfo=ZoneInfo('UTC'))
-                    utc_dt.original_timezone = original_tz
                     return utc_dt, True
         except Exception as fallback_e:
             print(f"Fallback UTC conversion also failed: {fallback_e}")
@@ -88,6 +85,72 @@ def debug_timezone_parsing(datetime_str, appointment_id):
         print(f"Fifth to last character: {datetime_str[-5]}")
     
     print("=" * 50)
+
+
+def extract_timezone_from_datetime(datetime_str):
+    """
+    Extract timezone information from a datetime string.
+    
+    Args:
+        datetime_str: the datetime string from Acuity API
+    
+    Returns:
+        string: timezone name or 'UTC' if not found
+    """
+    if not datetime_str:
+        return 'UTC'
+    
+    try:
+        # Handle Z suffix (UTC)
+        if datetime_str.endswith('Z'):
+            return 'UTC'
+        
+        # Handle timezone offset patterns
+        if 'T' in datetime_str and len(datetime_str) > 4:
+            # Look for timezone offset at the end
+            if datetime_str[-5] in ('+', '-'):
+                offset = datetime_str[-5:]
+                # Map common US timezone offsets
+                if offset == '-0500':
+                    return 'America/New_York'  # EST
+                elif offset == '-0400':
+                    return 'America/New_York'  # EDT
+                elif offset == '-0800':
+                    return 'America/Los_Angeles'  # PST
+                elif offset == '-0700':
+                    return 'America/Los_Angeles'  # PDT
+                elif offset == '-0600':
+                    return 'America/Chicago'  # CST
+                elif offset == '-0500':
+                    return 'America/Chicago'  # CDT
+                elif offset == '-0700':
+                    return 'America/Denver'  # MST
+                elif offset == '-0600':
+                    return 'America/Denver'  # MDT
+                elif offset == '-0900':
+                    return 'America/Anchorage'  # AKST
+                elif offset == '-0800':
+                    return 'America/Anchorage'  # AKDT
+                elif offset == '-1000':
+                    return 'Pacific/Honolulu'  # HST
+                else:
+                    # For other offsets, try to create a timezone name
+                    try:
+                        hours = int(offset[1:3])
+                        minutes = int(offset[3:5])
+                        if offset[0] == '-':
+                            return f"UTC-{hours:02d}:{minutes:02d}"
+                        else:
+                            return f"UTC+{hours:02d}:{minutes:02d}"
+                    except:
+                        return 'UTC'
+        
+        # If no timezone info found, return UTC
+        return 'UTC'
+        
+    except Exception as e:
+        print(f"Error extracting timezone from datetime string: {e}")
+        return 'UTC'
 
 
 class AcuityService:
@@ -128,6 +191,7 @@ class AcuityService:
                     original_tz = dt_with_tz.tzinfo
                     # Convert to UTC for database storage using safe conversion
                     utc_dt, success = safe_convert_to_utc(dt_with_tz, original_tz)
+                    # Return the UTC time - the timezone info will be stored separately in the database
                     return utc_dt, None
                 else:
                     # No timezone info, assume it's in the client's timezone
@@ -161,6 +225,7 @@ class AcuityService:
                         dt_with_tz = naive_dt.replace(tzinfo=tz)
                         # Convert to UTC for storage using safe conversion
                         utc_dt, success = safe_convert_to_utc(dt_with_tz, tz)
+                        # Return the UTC time - the timezone info will be stored separately in the database
                         return utc_dt, None
                     except ZoneInfoNotFoundError:
                         print(f"Warning: Unknown timezone '{tz_str}' for apt {apt_data.get('id')}. Using naive dt.")
@@ -350,30 +415,13 @@ class AcuityService:
                                 if not timezone_str:
                                     # Try to get timezone from the datetime string if available
                                     if 'T' in apt_data.get('datetime', ''):
-                                        try:
-                                            dt_str = apt_data.get('datetime', '')
-                                            if dt_str.endswith('Z'):
-                                                timezone_str = 'UTC'
-                                            elif len(dt_str) > 4 and dt_str[-5] in ('+', '-'):
-                                                # Extract timezone offset and convert to timezone name
-                                                offset = dt_str[-5:]
-                                                if offset == '-0500':
-                                                    timezone_str = 'America/New_York'  # EST
-                                                elif offset == '-0400':
-                                                    timezone_str = 'America/New_York'  # EDT
-                                                elif offset == '-0800':
-                                                    timezone_str = 'America/Los_Angeles'  # PST
-                                                elif offset == '-0700':
-                                                    timezone_str = 'America/Los_Angeles'  # PDT
-                                                elif offset == '-0600':
-                                                    timezone_str = 'America/Chicago'  # CST
-                                                elif offset == '-0500':
-                                                    timezone_str = 'America/Chicago'  # CDT
-                                                else:
-                                                    timezone_str = 'UTC'  # Default fallback
-                                        except Exception as e:
-                                            print(f"Warning: Could not parse timezone from datetime string: {e}")
-                                            timezone_str = 'UTC'
+                                        dt_str = apt_data.get('datetime', '')
+                                        # Debug timezone parsing for troubleshooting (commented out for production)
+                                        # debug_timezone_parsing(dt_str, apt_data.get('id', 'unknown'))
+                                        # Use the new robust timezone extraction function
+                                        timezone_str = extract_timezone_from_datetime(dt_str)
+                                    else:
+                                        timezone_str = 'UTC'
                                 
                                 acuity_id = str(apt_data.get('id', ''))
                                 if acuity_id in existing_map:
@@ -538,33 +586,13 @@ class AcuityService:
                             if not timezone_str:
                                 # Try to get timezone from the datetime string if available
                                 if 'T' in apt_data.get('datetime', ''):
-                                    try:
-                                        dt_str = apt_data.get('datetime', '')
-                                        # Debug timezone parsing for troubleshooting
-                                        debug_timezone_parsing(dt_str, apt_data.get('id', 'unknown'))
-                                        
-                                        if dt_str.endswith('Z'):
-                                            timezone_str = 'UTC'
-                                        elif len(dt_str) > 4 and dt_str[-5] in ('+', '-'):
-                                            # Extract timezone offset and convert to timezone name
-                                            offset = dt_str[-5:]
-                                            if offset == '-0500':
-                                                timezone_str = 'America/New_York'  # EST
-                                            elif offset == '-0400':
-                                                timezone_str = 'America/New_York'  # EDT
-                                            elif offset == '-0800':
-                                                timezone_str = 'America/Los_Angeles'  # PST
-                                            elif offset == '-0700':
-                                                timezone_str = 'America/Los_Angeles'  # PDT
-                                            elif offset == '-0600':
-                                                timezone_str = 'America/Chicago'  # CST
-                                            elif offset == '-0500':
-                                                timezone_str = 'America/Chicago'  # CDT
-                                            else:
-                                                timezone_str = 'UTC'  # Default fallback
-                                    except Exception as e:
-                                        print(f"Warning: Could not parse timezone from datetime string: {e}")
-                                        timezone_str = 'UTC'
+                                    dt_str = apt_data.get('datetime', '')
+                                    # Debug timezone parsing for troubleshooting (commented out for production)
+                                    # debug_timezone_parsing(dt_str, apt_data.get('id', 'unknown'))
+                                    # Use the new robust timezone extraction function
+                                    timezone_str = extract_timezone_from_datetime(dt_str)
+                                else:
+                                    timezone_str = 'UTC'
 
                             appointment, created = Appointment.objects.update_or_create(
                                 acuity_appointment_id=str(apt_data.get('id', '')),

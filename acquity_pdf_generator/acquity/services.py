@@ -675,49 +675,74 @@ class AcuityService:
             
             # If no header, try to estimate from first page
             appointments = response.json()
-            if len(appointments) == 0:
-                return 0
-            elif len(appointments) < 1:
-                # If we got less than requested, this might be all appointments
-                return len(appointments)
-            else:
-                # We got a full page, so there are likely more
-                return f"At least {len(appointments)} (exact count not available)"
-                
-        except Exception as e:
+            return len(appointments)
+            
+        except requests.exceptions.RequestException as e:
             print(f"Error getting appointments count: {e}")
-            return "Unknown"
+            return 0
+        except Exception as e:
+            import logging
+            logging.exception('Unexpected error getting appointments count')
+            return 0
 
-    def get_appointments_count_by_date_range(self, start_date, end_date, calendar_id=None):
-        """Get the total count of appointments from Acuity API for a specific date range"""
+    def get_appointment_by_id(self, appointment_id):
+        """
+        Fetch a single appointment by ID from Acuity API.
+        This is useful for updating existing appointments with correct timezone info.
+        
+        Args:
+            appointment_id: The Acuity appointment ID
+            
+        Returns:
+            dict: Appointment data from Acuity, or None if not found
+        """
         try:
-            params = {'max': 1}  # Just get 1 appointment to see total count
-            if calendar_id:
-                params['calendarID'] = calendar_id
-            if start_date:
-                params['minDate'] = start_date.strftime('%Y-%m-%d')
-            if end_date:
-                params['maxDate'] = end_date.strftime('%Y-%m-%d')
-                
-            response = requests.get(f"{self.base_url}/appointments", auth=self.auth, params=params)
+            response = requests.get(f"{self.base_url}/appointments/{appointment_id}", auth=self.auth)
             response.raise_for_status()
-            
-            # Check if there's a total count in headers or response
-            total_count = response.headers.get('X-Total-Count')
-            if total_count:
-                return int(total_count)
-            
-            # If no header, try to estimate from first page
-            appointments = response.json()
-            if len(appointments) == 0:
-                return 0
-            elif len(appointments) < 1:
-                # If we got less than requested, this might be all appointments
-                return len(appointments)
-            else:
-                # We got a full page, so there are likely more
-                return f"At least {len(appointments)} (exact count not available)"
-                
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching appointment {appointment_id}: {e}")
+            return None
         except Exception as e:
-            print(f"Error getting appointments count: {e}")
-            return "Unknown"
+            import logging
+            logging.exception(f'Unexpected error fetching appointment {appointment_id}')
+            return None
+
+    def update_existing_appointment_timezone(self, appointment):
+        """
+        Update an existing appointment with correct timezone information from Acuity.
+        
+        Args:
+            appointment: Django Appointment model instance
+            
+        Returns:
+            bool: True if updated successfully, False otherwise
+        """
+        try:
+            # Fetch fresh data from Acuity
+            acuity_data = self.get_appointment_by_id(appointment.acuity_appointment_id)
+            if not acuity_data:
+                return False
+            
+            # Extract timezone information
+            timezone_str = acuity_data.get('timezone', '')
+            if not timezone_str:
+                # Try to get timezone from the datetime string if available
+                if 'T' in acuity_data.get('datetime', ''):
+                    dt_str = acuity_data.get('datetime', '')
+                    timezone_str = extract_timezone_from_datetime(dt_str)
+                else:
+                    timezone_str = 'America/New_York'  # Default fallback
+            
+            # Update the appointment
+            appointment.original_timezone = timezone_str
+            appointment.last_synced = timezone.now()
+            appointment.save(update_fields=['original_timezone', 'last_synced'])
+            
+            print(f"Updated appointment {appointment.acuity_appointment_id} with timezone: {timezone_str}")
+            return True
+            
+        except Exception as e:
+            import logging
+            logging.exception(f'Error updating appointment {appointment.acuity_appointment_id} timezone')
+            return False

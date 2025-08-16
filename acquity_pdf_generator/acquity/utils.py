@@ -25,7 +25,11 @@ def convert_to_local_time(utc_time, timezone_str):
         datetime object in the specified timezone, or original time if conversion fails
     """
     try:
-        from zoneinfo import ZoneInfo
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            from backports.zoneinfo import ZoneInfo
+            
         if timezone_str and utc_time:
             target_tz = ZoneInfo(timezone_str)
             return utc_time.astimezone(target_tz)

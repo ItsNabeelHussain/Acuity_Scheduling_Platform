@@ -6,11 +6,89 @@ from requests.auth import HTTPBasicAuth
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+try:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+except ImportError:
+    # Fallback for older Python versions
+    try:
+        from backports.zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    except ImportError:
+        # Ultimate fallback - create a simple UTC timezone
+        class SimpleUTC:
+            def __init__(self):
+                self.utcoffset = timedelta(0)
+                self.dst = timedelta(0)
+                self.name = 'UTC'
+                self.tzname = lambda dt: 'UTC'
+        
+        ZoneInfo = lambda x: SimpleUTC()
+        ZoneInfoNotFoundError = Exception
+
 from .models import Calendar, AppointmentType, Appointment
 from django.db import transaction
 from acquity.utils import get_form_field
 from acquity.openai_utils import extract_guest_counts_with_gpt
+
+def safe_convert_to_utc(dt_with_tz, original_tz):
+    """
+    Safely convert a datetime to UTC, with fallback handling for various edge cases.
+    
+    Args:
+        dt_with_tz: datetime object with timezone info
+        original_tz: the original timezone object
+    
+    Returns:
+        tuple: (utc_datetime, success_flag)
+    """
+    try:
+        # Try to convert to UTC
+        utc_dt = dt_with_tz.astimezone(ZoneInfo('UTC'))
+        # Add original timezone info as a custom attribute for later use
+        utc_dt.original_timezone = original_tz
+        return utc_dt, True
+    except Exception as e:
+        print(f"Warning: Could not convert to UTC: {e}")
+        try:
+            # Fallback: try to manually adjust the time
+            if hasattr(original_tz, 'utcoffset'):
+                offset = original_tz.utcoffset(dt_with_tz)
+                if offset:
+                    utc_dt = dt_with_tz - offset
+                    utc_dt = utc_dt.replace(tzinfo=ZoneInfo('UTC'))
+                    utc_dt.original_timezone = original_tz
+                    return utc_dt, True
+        except Exception as fallback_e:
+            print(f"Fallback UTC conversion also failed: {fallback_e}")
+        
+        # Ultimate fallback: return original time with warning
+        print(f"Using original time for appointment due to timezone conversion failure")
+        return dt_with_tz, False
+
+
+def debug_timezone_parsing(datetime_str, appointment_id):
+    """
+    Debug function to help troubleshoot timezone parsing issues.
+    
+    Args:
+        datetime_str: the datetime string from Acuity API
+        appointment_id: the appointment ID for debugging
+    """
+    print(f"=== Timezone Debug for Appointment {appointment_id} ===")
+    print(f"Raw datetime string: {datetime_str}")
+    print(f"String length: {len(datetime_str) if datetime_str else 0}")
+    print(f"Contains 'T': {'T' in datetime_str if datetime_str else False}")
+    print(f"Ends with 'Z': {datetime_str.endswith('Z') if datetime_str else False}")
+    
+    if datetime_str and len(datetime_str) > 4:
+        print(f"Last 5 characters: {datetime_str[-5:]}")
+        print(f"Last character: {datetime_str[-1]}")
+        print(f"Second to last character: {datetime_str[-2]}")
+        print(f"Third to last character: {datetime_str[-3]}")
+        print(f"Fourth to last character: {datetime_str[-4]}")
+        print(f"Fifth to last character: {datetime_str[-5]}")
+    
+    print("=" * 50)
+
 
 class AcuityService:
     def __init__(self):
@@ -48,10 +126,8 @@ class AcuityService:
                 if dt_with_tz.tzinfo is not None:
                     # Store the original timezone info for display purposes
                     original_tz = dt_with_tz.tzinfo
-                    # Convert to UTC for database storage
-                    utc_dt = dt_with_tz.astimezone(timezone.utc)
-                    # Add original timezone info as a custom attribute for later use
-                    utc_dt.original_timezone = original_tz
+                    # Convert to UTC for database storage using safe conversion
+                    utc_dt, success = safe_convert_to_utc(dt_with_tz, original_tz)
                     return utc_dt, None
                 else:
                     # No timezone info, assume it's in the client's timezone
@@ -83,10 +159,8 @@ class AcuityService:
                     try:
                         tz = ZoneInfo(tz_str)
                         dt_with_tz = naive_dt.replace(tzinfo=tz)
-                        # Convert to UTC for storage
-                        utc_dt = dt_with_tz.astimezone(timezone.utc)
-                        # Preserve original timezone info
-                        utc_dt.original_timezone = tz
+                        # Convert to UTC for storage using safe conversion
+                        utc_dt, success = safe_convert_to_utc(dt_with_tz, tz)
                         return utc_dt, None
                     except ZoneInfoNotFoundError:
                         print(f"Warning: Unknown timezone '{tz_str}' for apt {apt_data.get('id')}. Using naive dt.")
@@ -297,7 +371,8 @@ class AcuityService:
                                                     timezone_str = 'America/Chicago'  # CDT
                                                 else:
                                                     timezone_str = 'UTC'  # Default fallback
-                                        except Exception:
+                                        except Exception as e:
+                                            print(f"Warning: Could not parse timezone from datetime string: {e}")
                                             timezone_str = 'UTC'
                                 
                                 acuity_id = str(apt_data.get('id', ''))
@@ -465,6 +540,9 @@ class AcuityService:
                                 if 'T' in apt_data.get('datetime', ''):
                                     try:
                                         dt_str = apt_data.get('datetime', '')
+                                        # Debug timezone parsing for troubleshooting
+                                        debug_timezone_parsing(dt_str, apt_data.get('id', 'unknown'))
+                                        
                                         if dt_str.endswith('Z'):
                                             timezone_str = 'UTC'
                                         elif len(dt_str) > 4 and dt_str[-5] in ('+', '-'):
@@ -484,7 +562,8 @@ class AcuityService:
                                                 timezone_str = 'America/Chicago'  # CDT
                                             else:
                                                 timezone_str = 'UTC'  # Default fallback
-                                    except Exception:
+                                    except Exception as e:
+                                        print(f"Warning: Could not parse timezone from datetime string: {e}")
                                         timezone_str = 'UTC'
 
                             appointment, created = Appointment.objects.update_or_create(

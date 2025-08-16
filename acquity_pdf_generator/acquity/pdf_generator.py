@@ -225,38 +225,57 @@ class PDFGenerator:
             ]))
         else:
             image_col = ''
-        header_row = [[company_title, image_col]]
-        header_table = Table(header_row, colWidths=[4.0*inch, 2.8*inch], hAlign='LEFT')
-        header_table.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('ALIGN', (0,0), (0,0), 'LEFT'),
-            ('ALIGN', (1,0), (1,0), 'RIGHT'),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-            ('TOPPADDING', (0,0), (-1,-1), 0),
-        ]))
-        elements.append(header_table)
-        elements.append(Spacer(1, 1))
-        # --- NOTE / ALLERGY / RESTRICTIONS BOX ---
+        # Create a combined header and note box table to eliminate gaps
         note_text = getattr(appointment, 'note_allergy_restrictions', None)
         if not note_text:
             note_text = get_form_field(getattr(appointment, 'form_data', []), [
                 'Note / Allergy / Restrictions', 'Allergy', 'Restrictions', 'Notes'
             ])
-            if note_text:
-                note_box = Table(
-                    [[Paragraph(f"<b>Note / Allergy / Restrictions:</b> {note_text}", ParagraphStyle('Normal', fontSize=font_size, leading=font_size+2))]],
-                    colWidths=[3.8*inch], hAlign='LEFT'
-                )
-                note_box.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f9f9c5')),
-                ('BOX', (0,0), (-1,-1), 1, colors.black),
-                ('LEFTPADDING', (0,0), (-1,-1), spacing),
-                ('RIGHTPADDING', (0,0), (-1,-1), spacing),
-                ('TOPPADDING', (0,0), (-1,-1), spacing*8),
-                ('BOTTOMPADDING', (0,0), (-1,-1), spacing*8),
+        
+        if note_text:
+            # Create note box content with proper width
+            note_content = Paragraph(f"<b>Note / Allergy / Restrictions:</b> {note_text}", 
+                                   ParagraphStyle('Normal', fontSize=font_size, leading=font_size+2))
+            # Ensure the note content fits in the column width
+            note_content.width = 3.8*inch
+            
+            # Combine header and note box in one table with NO gaps
+            combined_table = Table([
+                [company_title, image_col],  # First row: company name + seating arrangement
+                [note_content, '']           # Second row: note box (left) + empty (right)
+            ], colWidths=[4.0*inch, 2.8*inch], hAlign='LEFT')  # Restored proper column widths
+            
+            combined_table.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('ALIGN', (0,0), (0,0), 'LEFT'),
+                ('ALIGN', (1,0), (1,0), 'RIGHT'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                # Style the note box row with minimal spacing
+                ('BACKGROUND', (0,1), (0,1), colors.HexColor('#f9f9c5')),
+                ('BOX', (0,1), (0,1), 1, colors.black),
+                ('LEFTPADDING', (0,1), (0,1), spacing//2),  # Reduced left padding
+                ('RIGHTPADDING', (0,1), (0,1), spacing//2),  # Reduced right padding
+                ('TOPPADDING', (0,1), (0,1), 1),  # Minimal top padding (1 pixel)
+                ('BOTTOMPADDING', (0,1), (0,1), spacing*8),  # Reduced bottom padding
+                # Remove any row spacing
+                ('ROWBREAKS', (0,0), (-1,-1), 0),
             ]))
-                elements.append(note_box)
-                elements.append(Spacer(1, spacing*2))
+            
+            elements.append(combined_table)
+            elements.append(Spacer(1, spacing))  # Keep spacing below the combined table
+        else:
+            # If no note text, just add the header table
+            header_row = [[company_title, image_col]]
+            header_table = Table(header_row, colWidths=[4.0*inch, 2.8*inch], hAlign='LEFT')
+            header_table.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('ALIGN', (0,0), (0,0), 'LEFT'),
+                ('ALIGN', (1,0), (1,0), 'RIGHT'),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+            ]))
+            elements.append(header_table)
 
         # --- CONTACT INFO BAR ---
         contact_style = ParagraphStyle('Contact', fontSize=font_size, fontName='Helvetica-Bold', textColor=colors.black)
